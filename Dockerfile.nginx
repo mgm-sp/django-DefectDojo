@@ -3,7 +3,7 @@
 # The code for the build image should be idendical with the code in
 # Dockerfile.django to use the caching mechanism of Docker.
 
-FROM python:3.5.7-buster@sha256:4598d4365bb7a8628ba840f87406323e699c4da01ae6f926ff33787c63230779 as build
+FROM python:3.5.9-buster@sha256:1baef6be00b82fbd77f1b60ab227a1dbede6f23825ce1b7f1e9c6f7d1469a45c as build
 WORKDIR /app
 RUN \
   apt-get -y update && \
@@ -23,16 +23,22 @@ RUN pip3 wheel --wheel-dir=/tmp/wheels -r ./requirements.txt
 FROM build AS collectstatic
 
 USER root
+ENV \
+  # This will point yarn to whatever version of node you decide to use
+  # due to the use of nodejs instead of node name in some distros
+  node="nodejs"
 RUN \
   apt-get -y update && \
   apt-get -y install apt-transport-https ca-certificates && \
   curl -sSL https://deb.nodesource.com/gpgkey/nodesource.gpg.key | apt-key add - && \
-  echo "deb https://deb.nodesource.com/node_11.x stretch main" | tee /etc/apt/sources.list.d/nodesource.list && \
+  curl -sL https://deb.nodesource.com/setup_12.x | bash - && \
   curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | apt-key add - && \
-  echo "deb https://dl.yarnpkg.com/debian/ stable main" | tee /etc/apt/sources.list.d/yarn.list && \
+  echo "deb https://nightly.yarnpkg.com/debian/ nightly main" | tee /etc/apt/sources.list.d/yarn.list && \
   apt-get -y update && \
   apt-get -y install nodejs && \
+  echo "$(node --version)" && \
   apt-get -y install --no-install-recommends yarn && \
+  echo "$(yarn --version)" && \
   apt-get clean && \
   rm -rf /var/lib/apt/lists && \
   true
@@ -55,13 +61,14 @@ RUN \
   python3 manage.py collectstatic --noinput && \
   true
 
-FROM nginx:1.17.2@sha256:eb3320e2f9ca409b7c0aa71aea3cf7ce7d018f03a372564dbdb023646958770b
+FROM nginx:1.17.7@sha256:89a42c3ba15f09a3fbe39856bddacdf9e94cd03df7403cad4fc105088e268fc9
 COPY --from=collectstatic /app/static/ /usr/share/nginx/html/static/
 COPY wsgi_params nginx/nginx.conf /etc/nginx/
-COPY docker/entrypoint-nginx.sh /
+COPY docker/entrypoint-nginx.sh nginx/*.cer nginx/*.key /
 RUN \
   chmod -R g=u /var/cache/nginx && \
   chmod -R g=u /var/run && \
+  if [ -f /*.key -o -f /*.cer ]; then chown 1001 /*.key /*.cer; fi && \
   true
 ENV \
   DD_UWSGI_PASS="uwsgi_server" \
