@@ -11,12 +11,8 @@ services:
     environment: 
       NGINX_METRICS_ENABLED: ${NGINX_METRICS_ENABLED:-false}
     ports:
-      - target: ${DD_PORT:-8080}
+      - target: 8080
         published: ${DD_PORT:-8080}
-        protocol: tcp
-        mode: host
-      - target: ${DD_PORT:-8443}
-        published: ${DD_PORT:-8443}
         protocol: tcp
         mode: host
     restart: always
