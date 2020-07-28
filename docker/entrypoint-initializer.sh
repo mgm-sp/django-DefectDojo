@@ -66,5 +66,28 @@ EOD
   python3 manage.py import_surveys
   python3 manage.py loaddata initial_surveys
   python3 manage.py installwatson
-  exec python3 manage.py buildwatson
+  python3 manage.py buildwatson
+fi
+
+# If given, generate an extra admin user with an API key:
+if [ -n "${DD_EXTRA_ADMIN_USER}" ]
+then
+export DD_EXTRA_ADMIN_PASSWORD="$(cat /dev/urandom | \
+  LC_ALL=C tr -dc a-zA-Z0-9 | head -c 22)"
+cat <<EOD | python manage.py shell
+import os
+from django.contrib.auth.models import User
+from tastypie.models import ApiKey
+
+userName = os.getenv('DD_EXTRA_ADMIN_USER')
+userPassword = os.getenv('DD_EXTRA_ADMIN_PASSWORD')
+user = User.objects.create_superuser(
+  userName, 'extra-admin@defectdojo.local', userPassword)
+apiKey = ApiKey.objects.create(user=user)
+
+print('==== EXTRA ADMIN USER ====')
+print('Username:', userName)
+print('Password:', userPassword)
+print('API-Key:', apiKey.key)
+EOD
 fi
