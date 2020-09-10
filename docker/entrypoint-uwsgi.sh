@@ -10,6 +10,6 @@ exec uwsgi \
   --processes 2 \
   --threads 2 \
   --wsgi dojo.wsgi:application \
-  --socket-timeout 10800 \
-  --http-timeout 10800 \
-  --harakiri 10800
+  --socket-timeout 86400 \
+  --http-timeout 86400 \
+  --harakiri 86400
