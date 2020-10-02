@@ -1563,7 +1563,7 @@ class ImportScanResource(MultipartResource, Resource):
                                                                  product=t.engagement.product)
 
                     item.endpoints.add(ep)
-                item.save()
+                item.save(push_to_jira=True)
 
                 if item.unsaved_tags is not None:
                     item.tags = item.unsaved_tags
