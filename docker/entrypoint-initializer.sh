@@ -78,12 +78,18 @@ cat <<EOD | python manage.py shell
 import os
 from django.contrib.auth.models import User
 from tastypie.models import ApiKey
+from dojo.models import UserContactInfo
 
 userName = os.getenv('DD_EXTRA_ADMIN_USER')
 userPassword = os.getenv('DD_EXTRA_ADMIN_PASSWORD')
 user = User.objects.create_superuser(
   userName, 'extra-admin@defectdojo.local', userPassword)
 apiKey = ApiKey.objects.create(user=user)
+
+userInfo, _ = UserContactInfo.objects.get_or_create(user=user)
+userInfo.block_execution = True
+userInfo.save()
+
 
 print('==== EXTRA ADMIN USER ====')
 print('Username:', userName)
