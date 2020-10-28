@@ -12,4 +12,5 @@ exec uwsgi \
   --buffer-size="${DD_UWSGI_BUFFER_SIZE:-32768}" \
   --socket-timeout 86400 \
   --http-timeout 86400 \
-  --harakiri 86400
+  --harakiri 86400 \
+  --stats /run/defectdojo/stats.socket
