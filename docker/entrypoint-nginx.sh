@@ -14,6 +14,7 @@ fi
 
 if [ "${USE_TLS}" = true ]; then
   NGINX_CONFIG="/etc/nginx/nginx_TLS.conf"
+  echo "return 301 https://\$host:${DD_TLS_PORT}\$request_uri;" > /run/defectdojo/https_redirect
 else
   NGINX_CONFIG="/etc/nginx/nginx.conf"
 fi

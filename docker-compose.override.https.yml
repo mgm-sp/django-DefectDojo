@@ -5,11 +5,8 @@ services:
     environment:
       USE_TLS: 'true'
       GENERATE_TLS_CERTIFICATE: 'true'
-    ports:
-      - target: 8443
-        published: ${DD_TLS_PORT:-8443}
-        protocol: tcp
-        mode: host
+      DD_PORT: ${DD_PORT:-8080}
+      DD_TLS_PORT: ${DD_TLS_PORT:-8443}
   uwsgi:
     environment:
       DD_SESSION_COOKIE_SECURE: 'True'
