@@ -37,8 +37,8 @@ exec uwsgi \
   --threads ${DD_UWSGI_NUM_OF_THREADS:-2} \
   --wsgi dojo.wsgi:application \
   --buffer-size="${DD_UWSGI_BUFFER_SIZE:-32768}" \
-  # HTTP endpoint is enabled for Kubernetes liveness checks. It should not be exposed as a serivce.
   --http 0.0.0.0:8081 --http-to ${DD_UWSGI_ENDPOINT} \
+  # HTTP endpoint is enabled for Kubernetes liveness checks. It should not be exposed as a serivce.
   --socket-timeout 86400 \
   --http-timeout 86400 \
   --harakiri 86400 \
