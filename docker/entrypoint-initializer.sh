@@ -107,6 +107,7 @@ EOD
 
   echo "Installing watson search index"
   python3 manage.py installwatson
+fi
 
 # If given, generate an extra admin user, generate an APIv1 key, set
 # the same key for APIv2, and enable blocking execution:
