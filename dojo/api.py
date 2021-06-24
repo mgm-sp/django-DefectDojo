@@ -1015,9 +1015,6 @@ class FindingResource(BaseModelResource):
     # risk_acceptance = fields.ManyToManyField(RiskAcceptanceResource, 'risk_acceptance', full=True, null=True)
     product = fields.ForeignKey(ProductResource, 'test__engagement__product', full=False, null=False)
     engagement = fields.ForeignKey(EngagementResource, 'test__engagement', full=False, null=False)
-    duplicate_finding = fields.ForeignKey('self', 'duplicate_finding',
-                                          null=True, full=False,
-                                          related_name='original_finding')
 
     class Meta:
         resource_name = 'findings'
@@ -1438,7 +1435,7 @@ class ImportScanResource(MultipartResource, Resource):
                 if item.unsaved_tags:
                     item.tags = item.unsaved_tags
 
-                item.save(push_to_jira=True)
+                item.save()
 
         except SyntaxError:
             raise NotFound("Parser SyntaxError")
