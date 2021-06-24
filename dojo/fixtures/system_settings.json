@@ -5,6 +5,7 @@
   "fields": {
     "enable_deduplication": true,
     "enable_jira": false,
+    "enable_auditlog": false,
     "s_finding_severity_naming": false,
     "url_prefix": "",
     "time_zone": "UTC",
