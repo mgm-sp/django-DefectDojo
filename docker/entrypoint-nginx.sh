@@ -2,13 +2,14 @@
 
 umask 0002
 if [ "${GENERATE_TLS_CERTIFICATE}" = true ]; then
+  mkdir /run/secrets
   openssl req  \
       -x509 \
       -nodes \
       -days 365 \
       -newkey rsa:4096 \
-      -keyout /etc/nginx/ssl/nginx.key \
-      -out /etc/nginx/ssl/nginx.crt \
+      -keyout /run/secrets/defectdojo_nginx_ssl_key \
+      -out /run/secrets/defectdojo_nginx_ssl_cert \
       -subj "/C=DE/ST=City/L=City/O=Global Security/OU=IT Department/CN=nginx"
 fi
 
