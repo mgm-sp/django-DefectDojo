@@ -109,8 +109,8 @@ EOD
   python3 manage.py installwatson
 fi
 
-# If given, generate an extra admin user, generate an APIv1 key, set
-# the same key for APIv2, and enable blocking execution:
+# If given, create an extra admin user, generate an APIv2 key, and
+# enable blocking execution:
 if [ -n "${DD_EXTRA_ADMIN_USER}" ]
 then
 export DD_EXTRA_ADMIN_PASSWORD="$(cat /dev/urandom | \
@@ -118,7 +118,6 @@ export DD_EXTRA_ADMIN_PASSWORD="$(cat /dev/urandom | \
 cat <<EOD | python manage.py shell
 import os
 from django.contrib.auth.models import User
-from tastypie.models import ApiKey
 from rest_framework.authtoken.models import Token
 from dojo.models import UserContactInfo
 
@@ -127,9 +126,7 @@ userPassword = os.getenv('DD_EXTRA_ADMIN_PASSWORD')
 user = User.objects.create_superuser(
   userName, 'extra-admin@defectdojo.local', userPassword)
 
-apiKey = ApiKey.objects.create(user=user)
-
-Token.objects.create(user=user, key=apiKey.key)
+apiKey = Token.objects.create(user=user)
 
 userInfo, _ = UserContactInfo.objects.get_or_create(user=user)
 userInfo.block_execution = True
