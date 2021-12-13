@@ -34,6 +34,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v2
+        with:
+          persist-credentials: false
 
       - name: Read Docker Image Identifiers
         id: read-docker-image-identifiers
@@ -41,19 +43,10 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
-
-      - name: Cache Docker layers
-        uses: actions/cache@v2
-        env:
-          docker-image: ${{ matrix.docker-image }}
         with:
-          path: /tmp/.buildx-cache-${{ env.docker-image }}
-          key: ${{ runner.os }}-buildx-${{ env.docker-image }}-${{ github.workflow }}-${{ github.sha }}-${{ github.run_id }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-${{ env.docker-image }}-${{ github.workflow }}-${{ github.sha }}
-            ${{ runner.os }}-buildx-${{ env.docker-image }}-${{ github.workflow }}
-            ${{ runner.os }}-buildx-${{ env.docker-image }}
-
+          buildkitd-flags: --debug
+          driver-opts: image=moby/buildkit:master # needed to get the fix for https://github.com/moby/buildkit/issues/2426
+          
       - name: Build
         id: docker_build
         uses: docker/build-push-action@v2
@@ -66,9 +59,9 @@ jobs:
             ${{ env.DD_DOCKER_REPO }}/defectdojo-${{ env.docker-image }}:latest
           file: Dockerfile.${{ env.docker-image }}
           outputs: type=docker,dest=${{ env.docker-image }}_img
-          cache-from: type=local,src=/tmp/.buildx-cache-${{ env.docker-image }}
-          cache-to: type=local,dest=/tmp/.buildx-cache-${{ env.docker-image }}
-
+          cache-from: type=gha,scope=${{ matrix.docker-image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.docker-image }}
+          
       # export docker images to be used in next jobs below
       - name: Upload image ${{ matrix.docker-image }} as artifact
         uses:  actions/upload-artifact@v2
@@ -82,6 +75,33 @@ jobs:
     name: integration tests
     needs: build
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        test-case: [
+          "tests/finding_test.py",
+          "tests/report_builder_test.py",
+          "tests/notes_test.py",
+          "tests/regulations_test.py",
+          "tests/product_type_test.py",
+          "tests/product_test.py",
+          "tests/endpoint_test.py",
+          "tests/engagement_test.py",
+          "tests/environment_test.py",
+          "tests/test_test.py",
+          "tests/user_test.py",
+          "tests/group_test.py",
+          "tests/product_group_test.py",
+          "tests/product_type_group_test.py",
+          "tests/product_member_test.py",
+          "tests/product_type_member_test.py",
+          "tests/ibm_appscan_test.py",
+          "tests/search_test.py",
+          "tests/file_test.py",
+          "tests/dedupe_test.py",
+          "tests/check_various_pages.py",
+        ]
+      fail-fast: false
+
     steps:
 
       - name: Checkout
@@ -105,15 +125,18 @@ jobs:
 
       - name: Start Dojo
         # implicity starts uwsgi and rabbitmq
-        run: docker-compose up -d mysql nginx celerybeat celeryworker
+        run: docker-compose up -d mysql nginx celerybeat celeryworker mailhog
 
       - name: Initialize
         run: docker-compose up --exit-code-from initializer initializer
 
       - name: Integration tests
         run: docker-compose up --exit-code-from integration-tests integration-tests
+        env:
+          DD_INTEGRATION_TEST_FILENAME: ${{ matrix.test-case }}
 
       - name: Logs
+        if: always()
         run: docker-compose logs --tail="2500"
 
       - name: Shutdown

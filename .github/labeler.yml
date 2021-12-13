@@ -1,0 +1,23 @@
+docs:
+- docs/**/*
+- readme-docs/**/*
+
+docker:
+- docker/**/*
+- docker**
+- Docker*
+
+"New Migration":
+- dojo/db_migrations/*
+
+unittests:
+- unittests/**/*
+
+integration_tests:
+- tests/**/*
+
+settings_changes:
+- dojo/settings/settings.dist.py
+
+apiv2:
+- dojo/api_v2/**/*

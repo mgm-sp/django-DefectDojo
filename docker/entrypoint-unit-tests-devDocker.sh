@@ -13,6 +13,9 @@ unset DD_DATABASE_URL
 python3 manage.py makemigrations dojo
 python3 manage.py migrate
 
+# do the check with Django stack
+python3 manage.py check
+
 python3 manage.py spectacular --fail-on-warn > /dev/null || {
     cat <<-EOF
 
@@ -42,17 +45,17 @@ EOF
 
 echo "Swagger Schema Tests - Broken"
 echo "------------------------------------------------------------"
-python3 manage.py test dojo.unittests -v 3 --keepdb --no-input --tag broken && true
+python3 manage.py test unittests -v 3 --keepdb --no-input --tag broken && true
 
 echo "Unit Tests"
 echo "------------------------------------------------------------"
-python3 manage.py test dojo.unittests -v 3 --keepdb --no-input --exclude-tag broken
+python3 manage.py test unittests -v 3 --keepdb --no-input --exclude-tag broken
 
 # you can select a single file to "test" unit tests
-# python3 manage.py test dojo.unittests.tools.test_npm_audit_scan_parser.TestNpmAuditParser --keepdb -v 3
+# python3 manage.py test unittests.tools.test_npm_audit_scan_parser.TestNpmAuditParser --keepdb -v 3
 
 # or even a single method
-# python3 manage.py test dojo.unittests.tools.test_npm_audit_scan_parser.TestNpmAuditParser.test_npm_audit_parser_many_vuln_npm7 --keepdb -v 3
+# python3 manage.py test unittests.tools.test_npm_audit_scan_parser.TestNpmAuditParser.test_npm_audit_parser_many_vuln_npm7 --keepdb -v 3
 
 echo "End of tests. Leaving the container up"
 tail -f /dev/null
