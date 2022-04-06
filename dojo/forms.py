@@ -27,7 +27,7 @@ from dojo.models import Finding, Finding_Group, Product_Type, Product, Note_Type
     Development_Environment, Dojo_User, Endpoint, Stub_Finding, Finding_Template, \
     JIRA_Issue, JIRA_Project, JIRA_Instance, GITHUB_Issue, GITHUB_PKey, GITHUB_Conf, UserContactInfo, Tool_Type, \
     Tool_Configuration, Tool_Product_Settings, Cred_User, Cred_Mapping, System_Settings, Notifications, \
-    Languages, Language_Type, App_Analysis, Objects_Product, Benchmark_Product, Benchmark_Requirement, \
+    App_Analysis, Objects_Product, Benchmark_Product, Benchmark_Requirement, \
     Benchmark_Product_Summary, Rule, Child_Rule, Engagement_Presets, DojoMeta, \
     Engagement_Survey, Answered_Survey, TextAnswer, ChoiceAnswer, Choice, Question, TextQuestion, \
     ChoiceQuestion, General_Survey, Regulation, FileUpload, SEVERITY_CHOICES, Product_Type_Member, \
@@ -39,7 +39,7 @@ from django.urls import reverse
 from tagulous.forms import TagField
 import logging
 from crum import get_current_user
-from dojo.utils import get_system_setting, get_product
+from dojo.utils import get_system_setting, get_product, is_finding_groups_enabled
 from django.conf import settings
 from dojo.authorization.roles_permissions import Permissions
 from dojo.product_type.queries import get_authorized_product_types
@@ -401,8 +401,9 @@ class ImportScanForm(forms.Form):
     tags = TagField(required=False, help_text="Add tags that help describe this scan.  "
                     "Choose from the list or add new tags. Press Enter key to add.")
     file = forms.FileField(widget=forms.widgets.FileInput(
-        attrs={"accept": ".xml, .csv, .nessus, .json, .html, .js, .zip, .xlsx, .txt, .sarif"}),
+        attrs={"accept": ".xml, .csv, .nessus, .json, .jsonl, .html, .js, .zip, .xlsx, .txt, .sarif"}),
         label="Choose report file",
+        allow_empty_file=True,
         required=False)
 
     close_old_findings = forms.BooleanField(help_text="Select if old findings no longer present in the report get closed as mitigated when importing. "
@@ -410,7 +411,7 @@ class ImportScanForm(forms.Form):
                                                         "This affects the whole engagement/product depending on your deduplication scope.",
                                             required=False, initial=False)
 
-    if settings.FEATURE_FINDING_GROUPS:
+    if is_finding_groups_enabled():
         group_by = forms.ChoiceField(required=False, choices=Finding_Group.GROUP_BY_OPTIONS, help_text='Choose an option to automatically group new findings by the chosen option.')
 
     def __init__(self, *args, **kwargs):
@@ -471,8 +472,9 @@ class ReImportScanForm(forms.Form):
     tags = TagField(required=False, help_text="Modify existing tags that help describe this scan.  "
                     "Choose from the list or add new tags. Press Enter key to add.")
     file = forms.FileField(widget=forms.widgets.FileInput(
-        attrs={"accept": ".xml, .csv, .nessus, .json, .html, .js, .zip, .xlsx, .txt, .sarif"}),
+        attrs={"accept": ".xml, .csv, .nessus, .json, .jsonl, .html, .js, .zip, .xlsx, .txt, .sarif"}),
         label="Choose report file",
+        allow_empty_file=True,
         required=False)
     close_old_findings = forms.BooleanField(help_text="Select if old findings no longer present in the report get closed as mitigated when importing.",
                                             required=False, initial=True)
@@ -483,7 +485,7 @@ class ReImportScanForm(forms.Form):
     api_scan_configuration = forms.ModelChoiceField(Product_API_Scan_Configuration.objects, required=False, label='API Scan Configuration')
     service = forms.CharField(max_length=200, required=False, help_text="A service is a self-contained piece of functionality within a Product. This is an optional field which is used in deduplication of findings when set.")
 
-    if settings.FEATURE_FINDING_GROUPS:
+    if is_finding_groups_enabled():
         group_by = forms.ChoiceField(required=False, choices=Finding_Group.GROUP_BY_OPTIONS, help_text='Choose an option to automatically group new findings by the chosen option')
 
     def __init__(self, *args, test=None, **kwargs):
@@ -750,9 +752,9 @@ class EngForm(forms.ModelForm):
 
         if product:
             self.fields['preset'] = forms.ModelChoiceField(help_text="Settings and notes for performing this engagement.", required=False, queryset=Engagement_Presets.objects.filter(product=product))
-            self.fields['lead'].queryset = get_authorized_users_for_product_and_product_type(None, product, Permissions.Product_View)
+            self.fields['lead'].queryset = get_authorized_users_for_product_and_product_type(None, product, Permissions.Product_View).filter(is_active=True)
         else:
-            self.fields['lead'].queryset = User.objects.exclude(is_staff=False)
+            self.fields['lead'].queryset = Dojo_User.objects.filter(is_active=True)
 
         self.fields['product'].queryset = get_authorized_products(Permissions.Engagement_Add)
 
@@ -826,10 +828,10 @@ class TestForm(forms.ModelForm):
 
         if obj:
             product = get_product(obj)
-            self.fields['lead'].queryset = get_authorized_users_for_product_and_product_type(None, product, Permissions.Product_View)
+            self.fields['lead'].queryset = get_authorized_users_for_product_and_product_type(None, product, Permissions.Product_View).filter(is_active=True)
             self.fields['api_scan_configuration'].queryset = Product_API_Scan_Configuration.objects.filter(product=product)
         else:
-            self.fields['lead'].queryset = User.objects.exclude(is_staff=False)
+            self.fields['lead'].queryset = User.objects.filter(is_active=True)
 
     class Meta:
         model = Test
@@ -1173,7 +1175,7 @@ class FindingForm(forms.ModelForm):
             del self.fields['mitigated']
             del self.fields['mitigated_by']
 
-        if not settings.FEATURE_FINDING_GROUPS or not hasattr(self.instance, 'test'):
+        if not is_finding_groups_enabled() or not hasattr(self.instance, 'test'):
             del self.fields['group']
         else:
             self.fields['group'].queryset = self.instance.test.finding_group_set.all()
@@ -1332,6 +1334,7 @@ class FindingBulkUpdateForm(forms.ModelForm):
     # unlink_from_jira = forms.BooleanField(required=False)
     push_to_github = forms.BooleanField(required=False)
     tags = TagField(required=False, autocomplete_tags=Finding.tags.tag_model.objects.all().order_by('name'))
+    notes = forms.CharField(required=False, max_length=1024, widget=forms.TextInput(attrs={'class': 'form-control'}))
 
     def __init__(self, *args, **kwargs):
         super(FindingBulkUpdateForm, self).__init__(*args, **kwargs)
@@ -1553,8 +1556,8 @@ class ClearFindingReviewForm(forms.ModelForm):
 
 
 class ReviewFindingForm(forms.Form):
-    reviewers = forms.ModelMultipleChoiceField(queryset=Dojo_User.objects.filter(is_staff=True, is_active=True),
-                                               help_text="Select all users who can review Finding.")
+
+    reviewers = forms.MultipleChoiceField(help_text="Select all users who can review Finding.")
     entry = forms.CharField(
         required=True, max_length=2400,
         help_text='Please provide a message for reviewers.',
@@ -1569,9 +1572,18 @@ class ReviewFindingForm(forms.Form):
             finding = kwargs.pop('finding')
 
         super(ReviewFindingForm, self).__init__(*args, **kwargs)
+        self.fields['reviewers'].choices = self._get_choices(Dojo_User.objects.filter(is_active=True))
 
         if finding is not None:
-            self.fields['reviewers'].queryset = get_authorized_users_for_product_and_product_type(None, finding.test.engagement.product, Permissions.Finding_Edit)
+            queryset = get_authorized_users_for_product_and_product_type(None, finding.test.engagement.product, Permissions.Finding_Edit)
+            self.fields['reviewers'].choices = self._get_choices(queryset)
+
+    @staticmethod
+    def _get_choices(queryset):
+        l_choices = []
+        for item in queryset:
+            l_choices.append((item.pk, item.get_full_name()))
+        return l_choices
 
     class Meta:
         fields = ['reviewers', 'entry']
@@ -1876,20 +1888,34 @@ class AddDojoUserForm(forms.ModelForm):
 
     class Meta:
         model = Dojo_User
-        fields = ['username', 'password', 'first_name', 'last_name', 'email', 'is_active',
-                  'is_staff', 'is_superuser']
-        exclude = ['last_login', 'groups', 'date_joined', 'user_permissions',
-                    'authorized_products', 'authorized_product_types']
+        if settings.FEATURE_CONFIGURATION_AUTHORIZATION:
+            fields = ['username', 'password', 'first_name', 'last_name', 'email', 'is_active', 'is_superuser']
+        else:
+            fields = ['username', 'password', 'first_name', 'last_name', 'email', 'is_active', 'is_staff', 'is_superuser']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        current_user = get_current_user()
+        if not current_user.is_superuser:
+            self.fields['is_staff'].disabled = True
+            self.fields['is_superuser'].disabled = True
 
 
 class EditDojoUserForm(forms.ModelForm):
 
     class Meta:
         model = Dojo_User
-        fields = ['username', 'first_name', 'last_name', 'email', 'is_active',
-                  'is_staff', 'is_superuser']
-        exclude = ['password', 'last_login', 'groups', 'date_joined', 'user_permissions',
-                    'authorized_products', 'authorized_product_types']
+        if settings.FEATURE_CONFIGURATION_AUTHORIZATION:
+            fields = ['username', 'first_name', 'last_name', 'email', 'is_active', 'is_superuser']
+        else:
+            fields = ['username', 'first_name', 'last_name', 'email', 'is_active', 'is_staff', 'is_superuser']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        current_user = get_current_user()
+        if not current_user.is_superuser:
+            self.fields['is_staff'].disabled = True
+            self.fields['is_superuser'].disabled = True
 
 
 class DeleteUserForm(forms.ModelForm):
@@ -2195,18 +2221,6 @@ class RegulationForm(forms.ModelForm):
         exclude = ['product']
 
 
-class LanguagesTypeForm(forms.ModelForm):
-    class Meta:
-        model = Languages
-        exclude = ['product']
-
-
-class Languages_TypeTypeForm(forms.ModelForm):
-    class Meta:
-        model = Language_Type
-        exclude = ['product']
-
-
 class AppAnalysisForm(forms.ModelForm):
     user = forms.ModelChoiceField(queryset=Dojo_User.objects.exclude(is_active=False).order_by('first_name', 'last_name'), required=True)
 
@@ -2367,6 +2381,8 @@ class SystemSettingsForm(forms.ModelForm):
     class Meta:
         model = System_Settings
         exclude = ['product_grade', 'credentials', 'column_widths', 'drive_folder_ID']
+        if settings.FEATURE_CONFIGURATION_AUTHORIZATION:
+            exclude += ['staff_user_email_pattern']
 
 
 class BenchmarkForm(forms.ModelForm):
@@ -2387,7 +2403,7 @@ class NotificationsForm(forms.ModelForm):
 
     class Meta:
         model = Notifications
-        exclude = ['']
+        exclude = ['template']
 
 
 class ProductNotificationsForm(forms.ModelForm):
@@ -2594,7 +2610,7 @@ class JIRAFindingForm(forms.Form):
         super(JIRAFindingForm, self).__init__(*args, **kwargs)
         self.fields['push_to_jira'] = forms.BooleanField()
         self.fields['push_to_jira'].required = False
-        if settings.FEATURE_FINDING_GROUPS:
+        if is_finding_groups_enabled():
             self.fields['push_to_jira'].help_text = "Checking this will overwrite content of your JIRA issue, or create one. If this finding is part of a Finding Group, the group will pushed instead of the finding."
         else:
             self.fields['push_to_jira'].help_text = "Checking this will overwrite content of your JIRA issue, or create one."
@@ -2613,7 +2629,7 @@ class JIRAFindingForm(forms.Form):
             if hasattr(self.instance, 'has_jira_issue') and self.instance.has_jira_issue:
                 self.initial['jira_issue'] = self.instance.jira_issue.jira_key
                 self.fields['push_to_jira'].widget.attrs['checked'] = 'checked'
-        if settings.FEATURE_FINDING_GROUPS:
+        if is_finding_groups_enabled():
             self.fields['jira_issue'].widget = forms.TextInput(attrs={'placeholder': 'Leave empty and check push to jira to create a new JIRA issue for this finding, or the group this finding is in.'})
         else:
             self.fields['jira_issue'].widget = forms.TextInput(attrs={'placeholder': 'Leave empty and check push to jira to create a new JIRA issue for this finding.'})
@@ -3169,6 +3185,27 @@ class ConfigurationPermissionsForm(forms.Form):
         self.group = kwargs.pop('group', None)
         super(ConfigurationPermissionsForm, self).__init__(*args, **kwargs)
 
+        if get_system_setting('enable_github'):
+            github_permissions = [
+                Permission_Helper(name='github conf', app='dojo', view=True, add=True, delete=True),
+            ]
+        else:
+            github_permissions = []
+
+        if get_system_setting('enable_google_sheets'):
+            google_sheet_permissions = [
+                Permission_Helper(name='google sheet', app='dojo', change=True),
+            ]
+        else:
+            google_sheet_permissions = []
+
+        if get_system_setting('enable_jira'):
+            jira_permissions = [
+                Permission_Helper(name='jira instance', app='dojo', view=True, add=True, change=True, delete=True),
+            ]
+        else:
+            jira_permissions = []
+
         if get_system_setting('enable_questionnaires'):
             questionnaire_permissions = [
                 Permission_Helper(name='engagement survey', app='dojo', view=True, add=True, change=True, delete=True),
@@ -3177,19 +3214,33 @@ class ConfigurationPermissionsForm(forms.Form):
         else:
             questionnaire_permissions = []
 
-        permission_fields_1 = [
-            Permission_Helper(name='development environment', app='dojo', view=True, add=True, change=True, delete=True),
-            Permission_Helper(name='finding template', app='dojo', view=True, add=True, change=True, delete=True),
-            Permission_Helper(name='group', app='auth', view=True, add=True),
-            Permission_Helper(name='permission', app='auth', change=True)
-        ]
-        permission_fields_2 = [
-            Permission_Helper(name='test type', app='dojo', view=True, add=True, change=True),
+        if get_system_setting('enable_rules_framework'):
+            rules_permissions = [
+                Permission_Helper(name='rule', app='auth', view=True, add=True, change=True, delete=True),
+            ]
+        else:
+            rules_permissions = []
+
+        self.permission_fields = [
+            Permission_Helper(name='cred user', app='dojo', view=True, add=True, change=True, delete=True),
+            Permission_Helper(name='development environment', app='dojo', add=True, change=True, delete=True),
+            Permission_Helper(name='finding template', app='dojo', view=True, add=True, change=True, delete=True)] + \
+            github_permissions + \
+            google_sheet_permissions + [
+            Permission_Helper(name='group', app='auth', view=True, add=True)] + \
+            jira_permissions + [
+            Permission_Helper(name='language type', app='dojo', view=True, add=True, change=True, delete=True),
+            Permission_Helper(name='bannerconf', app='dojo', change=True),
+            Permission_Helper(name='note type', app='dojo', view=True, add=True, change=True, delete=True),
+            Permission_Helper(name='product type', app='dojo', add=True)] + \
+            questionnaire_permissions + [
+            Permission_Helper(name='regulation', app='dojo', add=True, change=True, delete=True)] + \
+            rules_permissions + [
+            Permission_Helper(name='test type', app='dojo', add=True, change=True),
+            Permission_Helper(name='tool configuration', app='dojo', view=True, add=True, change=True, delete=True),
             Permission_Helper(name='tool type', app='dojo', view=True, add=True, change=True, delete=True),
             Permission_Helper(name='user', app='auth', view=True, add=True, change=True, delete=True),
         ]
-
-        self.permission_fields = permission_fields_1 + questionnaire_permissions + permission_fields_2
 
         for permission_field in self.permission_fields:
             for codename in permission_field.codenames():
@@ -3203,9 +3254,10 @@ class ConfigurationPermissionsForm(forms.Form):
             self.permissions[permission.codename] = permission
 
     def save(self):
-        for permission_field in self.permission_fields:
-            for codename in permission_field.codenames():
-                self.set_permission(codename)
+        if get_current_user().is_superuser:
+            for permission_field in self.permission_fields:
+                for codename in permission_field.codenames():
+                    self.set_permission(codename)
 
     def set_permission(self, codename):
         if self.cleaned_data[codename]:
@@ -3236,10 +3288,18 @@ class Permission_Helper:
         self.delete = kwargs.pop('delete', False)
 
     def display_name(self):
-        if self.name == 'engagement survey':
-            return 'Questionnaire'
+        if self.name == 'bannerconf':
+            return 'Login Banner'
+        elif self.name == 'cred user':
+            return 'Credentials'
+        elif self.name == 'github conf':
+            return 'GitHub Configurations'
+        elif self.name == 'engagement survey':
+            return 'Questionnaires'
+        elif self.name == 'permission':
+            return 'Configuration Permissions'
         else:
-            return self.name.title()
+            return self.name.title() + 's'
 
     def view_codename(self):
         if self.view:

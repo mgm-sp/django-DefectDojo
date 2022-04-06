@@ -87,6 +87,11 @@ class ImportReimportMixin(object):
         self.aws_prowler_file_name_plus_one = self.scans_path + 'aws_prowler/many_vuln_plus_one.json'
         self.scan_type_aws_prowler = 'AWS Prowler Scan'
 
+        self.nuclei_empty = self.scans_path + 'nuclei/empty.jsonl'
+
+        self.gitlab_dast_file_name = self.scans_path + 'gitlab_dast/gitlab_dast_one_vul.json'
+        self.scan_type_gitlab_dast = 'GitLab DAST Report'
+
     # import zap scan, testing:
     # - import
     # - active/verifed = True
@@ -377,7 +382,7 @@ class ImportReimportMixin(object):
         notes_count_before = self.db_notes_count()
 
         # reimport exact same report
-        with assertTestImportModelsCreated(self, reimports=1):
+        with assertTestImportModelsCreated(self, reimports=1, untouched=4):
             reimport0 = self.reimport_scan_with_params(test_id, self.zap_sample0_filename)
 
         test_id = reimport0['test']
@@ -415,7 +420,7 @@ class ImportReimportMixin(object):
         notes_count_before = self.db_notes_count()
 
         # reimport exact same report
-        with assertTestImportModelsCreated(self, reimports=1):
+        with assertTestImportModelsCreated(self, reimports=1, untouched=4):
             reimport0 = self.reimport_scan_with_params(test_id, self.zap_sample0_filename, verified=False)
 
         test_id = reimport0['test']
@@ -456,7 +461,7 @@ class ImportReimportMixin(object):
         notes_count_before = self.db_notes_count()
 
         # reimport exact same report
-        with assertTestImportModelsCreated(self, reimports=1):
+        with assertTestImportModelsCreated(self, reimports=1, untouched=6):
             reimportsonar1 = self.reimport_scan_with_params(test_id, self.sonarqube_file_name1, scan_type=self.scan_type_sonarqube_detailed, verified=False)
 
         test_id = reimportsonar1['test']
@@ -491,7 +496,7 @@ class ImportReimportMixin(object):
         notes_count_before = self.db_notes_count()
 
         # reimport exact same report
-        with assertTestImportModelsCreated(self, reimports=1):
+        with assertTestImportModelsCreated(self, reimports=1, untouched=4):
             reimport_veracode_many_findings = self.reimport_scan_with_params(test_id, self.veracode_many_findings, scan_type=self.scan_type_veracode, verified=False)
 
         test_id = reimport_veracode_many_findings['test']
@@ -526,7 +531,7 @@ class ImportReimportMixin(object):
         notes_count_before = self.db_notes_count()
 
         # reimport other report
-        with assertTestImportModelsCreated(self, reimports=1, affected_findings=2, created=1, closed=1):
+        with assertTestImportModelsCreated(self, reimports=1, affected_findings=2, created=1, closed=1, untouched=5):
             reimportsonar1 = self.reimport_scan_with_params(test_id, self.sonarqube_file_name2, scan_type=self.scan_type_sonarqube_detailed, verified=False)
 
         test_id = reimportsonar1['test']
@@ -566,7 +571,7 @@ class ImportReimportMixin(object):
         notes_count_before = self.db_notes_count()
 
         # reimport
-        with assertTestImportModelsCreated(self, reimports=1):
+        with assertTestImportModelsCreated(self, reimports=1, untouched=4):
             reimport_veracode_many_findings = self.reimport_scan_with_params(test_id, self.veracode_same_hash_code_different_unique_id, scan_type=self.scan_type_veracode, verified=False)
 
         test_id = reimport_veracode_many_findings['test']
@@ -600,7 +605,7 @@ class ImportReimportMixin(object):
         notes_count_before = self.db_notes_count()
 
         # reimport
-        with assertTestImportModelsCreated(self, reimports=1):
+        with assertTestImportModelsCreated(self, reimports=1, untouched=4):
             reimport_veracode_many_findings = self.reimport_scan_with_params(test_id, self.veracode_same_unique_id_different_hash_code, scan_type=self.scan_type_veracode, verified=False)
 
         test_id = reimport_veracode_many_findings['test']
@@ -635,7 +640,7 @@ class ImportReimportMixin(object):
         notes_count_before = self.db_notes_count()
 
         # reimport
-        with assertTestImportModelsCreated(self, reimports=1, affected_findings=2, created=1, closed=1):
+        with assertTestImportModelsCreated(self, reimports=1, affected_findings=2, created=1, closed=1, untouched=3):
             reimport_veracode_many_findings = self.reimport_scan_with_params(test_id, self.veracode_different_hash_code_different_unique_id, scan_type=self.scan_type_veracode, verified=False)
 
         test_id = reimport_veracode_many_findings['test']
@@ -677,7 +682,7 @@ class ImportReimportMixin(object):
         notes_count_before = self.db_notes_count()
 
         # reimport updated report
-        with assertTestImportModelsCreated(self, reimports=1, affected_findings=2, created=1, closed=1):
+        with assertTestImportModelsCreated(self, reimports=1, affected_findings=2, created=1, closed=1, untouched=3):
             reimport1 = self.reimport_scan_with_params(test_id, self.zap_sample1_filename, verified=False)
 
         test_id = reimport1['test']
@@ -738,7 +743,7 @@ class ImportReimportMixin(object):
         endpoint_status_count_before_active = self.db_endpoint_status_count(mitigated=False)
         endpoint_status_count_before_mitigated = self.db_endpoint_status_count(mitigated=True)
 
-        with assertTestImportModelsCreated(self, reimports=1, affected_findings=2, closed=1, reactivated=1):
+        with assertTestImportModelsCreated(self, reimports=1, affected_findings=2, closed=1, reactivated=1, untouched=3):
             reimport0 = self.reimport_scan_with_params(test_id, self.zap_sample0_filename)
 
         test_id = reimport1['test']
@@ -800,7 +805,7 @@ class ImportReimportMixin(object):
         endpoint_status_count_before_mitigated = self.db_endpoint_status_count(mitigated=True)
         notes_count_before = self.db_notes_count()
 
-        with assertTestImportModelsCreated(self, reimports=1, affected_findings=0):
+        with assertTestImportModelsCreated(self, reimports=1, affected_findings=0, untouched=4):
             reimport2 = self.reimport_scan_with_params(test_id, self.zap_sample2_filename)
 
         test_id = reimport2['test']
@@ -834,7 +839,7 @@ class ImportReimportMixin(object):
         findings = self.get_test_findings_api(test_id)
         self.log_finding_summary_json_api(findings)
 
-        with assertTestImportModelsCreated(self, reimports=1, affected_findings=0):
+        with assertTestImportModelsCreated(self, reimports=1, affected_findings=0, untouched=4):
             reimport2 = self.reimport_scan_with_params(test_id, self.zap_sample2_filename)
 
         test_id = reimport2['test']
@@ -891,7 +896,7 @@ class ImportReimportMixin(object):
         notes_count_before = self.db_notes_count()
 
         # reimport updated report
-        with assertTestImportModelsCreated(self, reimports=1, affected_findings=4, created=2, closed=2):
+        with assertTestImportModelsCreated(self, reimports=1, affected_findings=4, created=2, closed=2, untouched=2):
             reimport1 = self.reimport_scan_with_params(test_id, self.zap_sample3_filename)
 
         test_id = reimport1['test']
@@ -945,7 +950,7 @@ class ImportReimportMixin(object):
         findings = self.get_test_findings_api(test_id)
         self.assert_finding_count_json(4, findings)
 
-        with assertTestImportModelsCreated(self, reimports=1, affected_findings=1, created=1):
+        with assertTestImportModelsCreated(self, reimports=1, affected_findings=1, created=1, untouched=3):
             reimport1 = self.reimport_scan_with_params(test_id, self.zap_sample2_filename, close_old_findings=False)
 
         test_id = reimport1['test']
@@ -990,7 +995,7 @@ class ImportReimportMixin(object):
         notes_count_before = self.db_notes_count()
 
         # reimport exact same report
-        with assertTestImportModelsCreated(self, reimports=1, affected_findings=0):
+        with assertTestImportModelsCreated(self, reimports=1, affected_findings=0, untouched=4):
             reimport0 = self.reimport_scan_with_params(test_id, self.anchore_file_name, scan_type=self.scan_type_anchore)
 
         active_findings_after = self.get_test_findings_api(test_id, active=True)
@@ -1119,7 +1124,7 @@ class ImportReimportMixin(object):
         active_findings_before = self.get_test_findings_api(test_id, active=True)
         self.assert_finding_count_json(6, active_findings_before)
 
-        with assertTestImportModelsCreated(self, reimports=1, affected_findings=0, created=0):
+        with assertTestImportModelsCreated(self, reimports=1, affected_findings=0, created=0, untouched=6):
             reimport0 = self.reimport_scan_with_params(test_id,
                                                        self.gitlab_dep_scan_components_filename,
                                                        scan_type=self.scan_type_gtlab_dep_scan,
@@ -1299,7 +1304,7 @@ class ImportReimportMixin(object):
         test_id = import0['test']
 
         # reimport exact same report
-        with assertTestImportModelsCreated(self, reimports=1):
+        with assertTestImportModelsCreated(self, reimports=1, untouched=1):
             reimport0 = self.reimport_scan_with_params(test_id, self.generic_filename_with_file, scan_type="Generic Findings Import")
 
         test_id2 = reimport0['test']
@@ -1317,8 +1322,69 @@ class ImportReimportMixin(object):
         findings = self.get_test_findings_api(test_id, verified=False)
         self.assert_finding_count_json(0, findings)
 
+    def test_import_nuclei_emptyc(self):
+        """This test do a basic import of Nuclei report with no vulnerability
 
-@override_settings(TRACK_IMPORT_HISTORY=True)
+        This test is useful because Nuclei use jsonl for his format so it can generate empty files.
+        It tests the condition limit of loading an empty file.
+        """
+
+        import0 = self.import_scan_with_params(self.nuclei_empty, scan_type="Nuclei Scan")
+
+        test_id = import0['test']
+
+        reimport0 = self.reimport_scan_with_params(test_id, self.nuclei_empty, scan_type="Nuclei Scan")
+
+        test_id2 = reimport0['test']
+        self.assertEqual(test_id, test_id2)
+
+    def test_import_reimport_endpoint_where_eps_date_is_different(self):
+        endpoint_count_before = self.db_endpoint_count()
+        endpoint_status_count_before_active = self.db_endpoint_status_count(mitigated=False)
+        endpoint_status_count_before_mitigated = self.db_endpoint_status_count(mitigated=True)
+
+        with assertTestImportModelsCreated(self, imports=1, affected_findings=1, created=1):
+            import0 = self.import_scan_with_params(self.gitlab_dast_file_name,
+                                                   self.scan_type_gitlab_dast,
+                                                   active=True,
+                                                   verified=True)
+
+        test_id = import0['test']
+
+        findings = self.get_test_findings_api(test_id)
+        self.log_finding_summary_json_api(findings)
+        self.assert_finding_count_json(1, findings)
+
+        test = self.get_test_api(test_id)['id']
+        finding = Finding.objects.filter(test__engagement_id=1, test=test).first()
+        self.assertEqual(finding.endpoint_status.count(), 1)
+
+        original_date = finding.endpoint_status.first().date
+
+        self.assertEqual(endpoint_count_before + 1, self.db_endpoint_count())
+        self.assertEqual(endpoint_status_count_before_active + 1, self.db_endpoint_status_count(mitigated=False))
+        self.assertEqual(endpoint_status_count_before_mitigated, self.db_endpoint_status_count(mitigated=True))
+
+        reimport0 = self.reimport_scan_with_params(test_id,
+                                                   self.gitlab_dast_file_name,
+                                                   scan_type=self.scan_type_gitlab_dast)
+        test_id = reimport0['test']
+
+        findings = self.get_test_findings_api(test_id)
+        self.log_finding_summary_json_api(findings)
+        self.assert_finding_count_json(1, findings)
+
+        finding = Finding.objects.filter(test__engagement_id=1, test=test).first()
+        self.assertEqual(finding.endpoint_status.count(), 1)
+
+        reimported_date = finding.endpoint_status.first().date
+        self.assertEqual(original_date, reimported_date)
+
+        self.assertEqual(endpoint_count_before + 1, self.db_endpoint_count())
+        self.assertEqual(endpoint_status_count_before_active + 1, self.db_endpoint_status_count(mitigated=False))
+        self.assertEqual(endpoint_status_count_before_mitigated, self.db_endpoint_status_count(mitigated=True))
+
+
 class ImportReimportTestAPI(DojoAPITestCase, ImportReimportMixin):
     fixtures = ['dojo_testdata.json']
 
@@ -1335,6 +1401,202 @@ class ImportReimportTestAPI(DojoAPITestCase, ImportReimportMixin):
         self.client.credentials(HTTP_AUTHORIZATION='Token ' + token.key)
         # self.url = reverse(self.viewname + '-list')
 
+    # Statistics only available in API Response
+    # One testcase covering intial import, closing during reimport and reactivating during reimport
+
+    # import 0 and then reimport 1 with zap4 as extra finding, zap1 closed and then reimport 0 again
+    # - active findings count should be 4
+    # - total  findings count should be 5
+    # - zap1 active, zap4 inactive
+    def test_import_0_reimport_1_active_verified_reimport_0_active_verified_statistics(self):
+        logger.debug('reimporting updated zap xml report, 1 new finding and 1 no longer present, verified=True and then 0 again')
+
+        import0 = self.import_scan_with_params(self.zap_sample0_filename)
+
+        self.assertEqual(import0['statistics'],
+        {'after': {'info': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+         'low': {'active': 3, 'verified': 3, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 3},
+         'medium': {'active': 1, 'verified': 1, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 1},
+         'high': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+         'critical': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+         'total': {'active': 4, 'verified': 4, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 4}}})
+
+        test_id = import0['test']
+        reimport1 = self.reimport_scan_with_params(test_id, self.zap_sample1_filename)
+
+        self.assertEqual(reimport1['statistics'],
+        {
+            'before': {
+                    'info': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'low': {'active': 3, 'verified': 3, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 3},
+                    'medium': {'active': 1, 'verified': 1, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 1},
+                    'high': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'critical': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'total': {'active': 4, 'verified': 4, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 4}
+            },
+            'delta': {
+                'created': {
+                    'info': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'low': {'active': 1, 'verified': 1, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 1},
+                    'medium': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'high': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'critical': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'total': {'active': 1, 'verified': 1, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 1}
+                },
+                'closed': {
+                    'info': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'low': {'active': 0, 'verified': 1, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 1, 'risk_accepted': 0, 'total': 1},
+                    'medium': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'high': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'critical': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'total': {'active': 0, 'verified': 1, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 1, 'risk_accepted': 0, 'total': 1}
+                },
+                'reactivated': {
+                    'info': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'low': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'medium': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'high': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'critical': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'total': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0}
+                },
+                'left untouched': {
+                    'info': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0}, 'low': {'active': 2, 'verified': 2, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 2},
+                    'medium': {'active': 1, 'verified': 1, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 1},
+                    'high': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'critical': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'total': {'active': 3, 'verified': 3, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 3}
+                }
+            },
+            'after': {
+                'info': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                'low': {'active': 3, 'verified': 4, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 1, 'risk_accepted': 0, 'total': 4},
+                'medium': {'active': 1, 'verified': 1, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 1},
+                'high': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                'critical': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                'total': {'active': 4, 'verified': 5, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 1, 'risk_accepted': 0, 'total': 5}
+            }
+        })
+
+        with assertTestImportModelsCreated(self, reimports=1, affected_findings=2, closed=1, reactivated=1, untouched=3):
+            reimport0 = self.reimport_scan_with_params(test_id, self.zap_sample0_filename)
+
+        self.assertEqual(reimport0['statistics'],
+        {
+            'before': {
+                    'info': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'low': {'active': 3, 'verified': 4, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 1, 'risk_accepted': 0, 'total': 4},
+                    'medium': {'active': 1, 'verified': 1, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 1},
+                    'high': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'critical': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'total': {'active': 4, 'verified': 5, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 1, 'risk_accepted': 0, 'total': 5}
+            },
+            'delta': {
+                'created': {
+                    'info': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'low': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'medium': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'high': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'critical': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'total': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0}
+                },
+                'closed': {
+                    'info': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'low': {'active': 0, 'verified': 1, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 1, 'risk_accepted': 0, 'total': 1},
+                    'medium': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'high': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'critical': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'total': {'active': 0, 'verified': 1, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 1, 'risk_accepted': 0, 'total': 1}
+                },
+                'reactivated': {
+                    'info': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'low': {'active': 1, 'verified': 1, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 1},
+                    'medium': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'high': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'critical': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'total': {'active': 1, 'verified': 1, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 1}
+                },
+                'left untouched': {
+                    'info': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'low': {'active': 2, 'verified': 2, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 2},
+                    'medium': {'active': 1, 'verified': 1, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 1},
+                    'high': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'critical': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'total': {'active': 3, 'verified': 3, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 3}
+                }
+            },
+            'after': {
+                'info': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                'low': {'active': 3, 'verified': 4, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 1, 'risk_accepted': 0, 'total': 4},
+                'medium': {'active': 1, 'verified': 1, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 1},
+                'high': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                'critical': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                'total': {'active': 4, 'verified': 5, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 1, 'risk_accepted': 0, 'total': 5}
+            }
+        })
+
+    # without import history, there are no delta statistics
+    @override_settings(TRACK_IMPORT_HISTORY=False)
+    def test_import_0_reimport_1_active_verified_reimport_0_active_verified_statistics_no_history(self):
+        logger.debug('reimporting updated zap xml report, 1 new finding and 1 no longer present, verified=True and then 0 again')
+
+        import0 = self.import_scan_with_params(self.zap_sample0_filename)
+
+        self.assertEqual(import0['statistics'],
+        {'after': {'info': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+         'low': {'active': 3, 'verified': 3, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 3},
+         'medium': {'active': 1, 'verified': 1, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 1},
+         'high': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+         'critical': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+         'total': {'active': 4, 'verified': 4, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 4}}})
+
+        test_id = import0['test']
+
+        reimport1 = self.reimport_scan_with_params(test_id, self.zap_sample1_filename)
+
+        print(reimport1)
+        self.assertEqual(reimport1['statistics'],
+        {
+            'before': {
+                    'info': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'low': {'active': 3, 'verified': 3, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 3},
+                    'medium': {'active': 1, 'verified': 1, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 1},
+                    'high': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'critical': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'total': {'active': 4, 'verified': 4, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 4}
+            },
+            'after': {
+                'info': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                'low': {'active': 3, 'verified': 4, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 1, 'risk_accepted': 0, 'total': 4},
+                'medium': {'active': 1, 'verified': 1, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 1},
+                'high': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                'critical': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                'total': {'active': 4, 'verified': 5, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 1, 'risk_accepted': 0, 'total': 5}
+            }
+        })
+
+        with assertTestImportModelsCreated(self, reimports=0, affected_findings=0, closed=0, reactivated=0, untouched=0):
+            reimport0 = self.reimport_scan_with_params(test_id, self.zap_sample0_filename)
+
+        print(reimport0)
+        self.assertEqual(reimport0['statistics'],
+        {
+            'before': {
+                    'info': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'low': {'active': 3, 'verified': 4, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 1, 'risk_accepted': 0, 'total': 4},
+                    'medium': {'active': 1, 'verified': 1, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 1},
+                    'high': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'critical': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                    'total': {'active': 4, 'verified': 5, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 1, 'risk_accepted': 0, 'total': 5}
+            },
+            'after': {
+                'info': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                'low': {'active': 3, 'verified': 4, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 1, 'risk_accepted': 0, 'total': 4},
+                'medium': {'active': 1, 'verified': 1, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 1},
+                'high': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                'critical': {'active': 0, 'verified': 0, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 0, 'risk_accepted': 0, 'total': 0},
+                'total': {'active': 4, 'verified': 5, 'duplicate': 0, 'false_p': 0, 'out_of_scope': 0, 'is_mitigated': 1, 'risk_accepted': 0, 'total': 5}
+            }
+        })
     # Reimport tests to test Scan_Date logic (usecase not supported on UI)
 
     # reimport zap scan without dates (non existing test, so import is called inside DD)
@@ -1414,7 +1676,6 @@ class ImportReimportTestAPI(DojoAPITestCase, ImportReimportMixin):
         return test_id
 
 
-@override_settings(TRACK_IMPORT_HISTORY=True)
 class ImportReimportTestUI(DojoAPITestCase, ImportReimportMixin):
     fixtures = ['dojo_testdata.json']
     client_ui = Client()

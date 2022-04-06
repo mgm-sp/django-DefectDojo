@@ -3,7 +3,6 @@ from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from django.contrib import messages
 from django.conf import settings
-from django.core.exceptions import PermissionDenied
 from django.urls import reverse
 from django.http import HttpResponseRedirect
 from django.shortcuts import render, get_object_or_404
@@ -34,7 +33,7 @@ def process_endpoints_view(request, host_view=False, vulnerable=False):
 
     if vulnerable:
         endpoints = Endpoint.objects.filter(finding__active=True, finding__verified=True, finding__false_p=False,
-                                     finding__duplicate=False, finding__out_of_scope=False, mitigated=False)
+                                     finding__duplicate=False, finding__out_of_scope=False)
         endpoints = endpoints.filter(endpoint_status__mitigated=False)
     else:
         endpoints = Endpoint.objects.all()
@@ -356,25 +355,22 @@ def edit_meta_data(request, eid):
 def endpoint_bulk_update_all(request, pid=None):
     if request.method == "POST":
         endpoints_to_update = request.POST.getlist('endpoints_to_update')
-        finds = Endpoint.objects.filter(id__in=endpoints_to_update).order_by("endpoint_meta__product__id")
-        total_endpoint_count = finds.count()
+        endpoints = Endpoint.objects.filter(id__in=endpoints_to_update).order_by("endpoint_meta__product__id")
+        total_endpoint_count = endpoints.count()
 
         if request.POST.get('delete_bulk_endpoints') and endpoints_to_update:
 
-            if pid is None:
-                if not request.user.is_staff:
-                    raise PermissionDenied
-            else:
+            if pid is not None:
                 product = get_object_or_404(Product, id=pid)
                 user_has_permission_or_403(request.user, product, Permissions.Endpoint_Delete)
 
-            finds = get_authorized_endpoints(Permissions.Endpoint_Delete, finds, request.user)
+            endpoints = get_authorized_endpoints(Permissions.Endpoint_Delete, endpoints, request.user)
 
-            skipped_endpoint_count = total_endpoint_count - finds.count()
-            deleted_endpoint_count = finds.count()
+            skipped_endpoint_count = total_endpoint_count - endpoints.count()
+            deleted_endpoint_count = endpoints.count()
 
             product_calc = list(Product.objects.filter(endpoint__id__in=endpoints_to_update).distinct())
-            finds.delete()
+            endpoints.delete()
             for prod in product_calc:
                 calculate_grade(prod)
 
@@ -389,29 +385,30 @@ def endpoint_bulk_update_all(request, pid=None):
         else:
             if endpoints_to_update:
 
-                if pid is None:
-                    if not request.user.is_staff:
-                        raise PermissionDenied
-                else:
+                if pid is not None:
                     product = get_object_or_404(Product, id=pid)
                     user_has_permission_or_403(request.user, product, Permissions.Finding_Edit)
 
-                finds = get_authorized_endpoints(Permissions.Endpoint_Edit, finds, request.user)
+                endpoints = get_authorized_endpoints(Permissions.Endpoint_Edit, endpoints, request.user)
 
-                skipped_endpoint_count = total_endpoint_count - finds.count()
-                updated_endpoint_count = finds.count()
+                skipped_endpoint_count = total_endpoint_count - endpoints.count()
+                updated_endpoint_count = endpoints.count()
 
                 if skipped_endpoint_count > 0:
                     add_error_message_to_response('Skipped mitigation of {} endpoints because you are not authorized.'.format(skipped_endpoint_count))
 
-                for endpoint in finds:
-                    endpoint.mitigated = not endpoint.mitigated
-                    endpoint.save()
+                eps_count = Endpoint_Status.objects.filter(endpoint__in=endpoints).update(
+                    mitigated=True,
+                    mitigated_by=request.user,
+                    mitigated_time=timezone.now(),
+                    last_modified=timezone.now()
+                )
 
                 if updated_endpoint_count > 0:
                     messages.add_message(request,
                                         messages.SUCCESS,
-                                        'Bulk mitigation of {} endpoints was successful.'.format(updated_endpoint_count),
+                                        'Bulk mitigation of {} endpoints ({} endpoint statuses) was successful.'.format(
+                                            updated_endpoint_count, eps_count),
                                         extra_tags='alert-success')
             else:
                 messages.add_message(request,

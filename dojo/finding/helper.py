@@ -245,10 +245,13 @@ def group_findings_by(finds, finding_group_by_option):
     return affected_groups, grouped, skipped, groups_created
 
 
-def add_finding_to_auto_group(finding, group_by):
+def add_finding_to_auto_group(finding, group_by, **kwargs):
     test = finding.test
     name = get_group_by_group_name(finding, group_by)
-    finding_group, created = Finding_Group.objects.get_or_create(test=test, creator=get_current_user(), name=name)
+    creator = get_current_user()
+    if not creator:
+        creator = kwargs.get('async_user', None)
+    finding_group, created = Finding_Group.objects.get_or_create(test=test, creator=creator, name=name)
     if created:
         logger.debug('Created Finding Group %d:%s for test %d:%s', finding_group.id, finding_group, test.id, test)
     finding_group.findings.add(finding)
@@ -550,6 +553,6 @@ def add_endpoints(new_finding, form):
     for endpoint in new_finding.endpoints.all():
         eps, created = Endpoint_Status.objects.get_or_create(
             finding=new_finding,
-            endpoint=endpoint)
+            endpoint=endpoint, defaults={'date': form.cleaned_data['date'] or now})
         endpoint.endpoint_status.add(eps)
         new_finding.endpoint_status.add(eps)
