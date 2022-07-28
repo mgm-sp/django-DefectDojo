@@ -10,7 +10,7 @@ setup(
     install_requires=[
         'defusedxml',
         'Django==2.2.4',
-        'django-auditlog==0.4.0',
+        'django-auditlog==2.1.1',
         'django-custom-field',
         'django-filter==1.0.4',
         'django-imagekit',
