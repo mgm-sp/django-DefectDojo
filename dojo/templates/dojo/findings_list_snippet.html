@@ -192,7 +192,7 @@
                             <th class="nowrap centered">{% dojo_sort request 'Severity' 'numerical_severity' 'asc' %}</th>
                             <th class="nowrap">{% dojo_sort request 'Name' 'title' %}</th>
                             <th>CWE</th>
-                            <th>CVE</th>
+                            <th>Vulnerability Id</th>
                             {% if filter_name == 'Closed' %}
                             <th class="nowrap">{% dojo_sort request 'Closed Date' 'mitigated'%}</th>
                             {% else %}
@@ -248,6 +248,11 @@
                                           <i class="fa fa-pencil-square-o"></i> Edit
                                           </a>
                                        </li>
+                                       <li>
+                                          <a class="" href="{% url 'copy_finding' finding.id %}?return_url={{ request.get_full_path|urlencode }}"/>
+                                          <i class="fa fa-copy"></i> Copy
+                                          </a>
+                                        </li>
                                        {% endif %}
                                        {% if finding|has_object_permission:"Finding_Edit" %}
                                           <li class="divider"></li>
@@ -272,14 +277,14 @@
                                               </a>
                                           </li>
                                        {% endif %}
-                                       {% if "dojo.add_finding_template"|has_configuration_permission:"staff" %}
+                                       {% if "dojo.add_finding_template"|has_configuration_permission %}
                                           <li role="presentation">
                                               <a href="{% url 'mktemplate' finding.id %}">
                                                   <i class="fa fa-copy"></i> Make Finding a Template
                                               </a>
                                           </li>
                                        {% endif %}
-                                       {% if finding|has_object_permission:"Finding_Edit" and "dojo.view_finding_template"|has_configuration_permission:"staff" %}
+                                       {% if finding|has_object_permission:"Finding_Edit" and "dojo.view_finding_template"|has_configuration_permission %}
                                           <li role="presentation">
                                               <a href="{% url 'find_template_to_apply' finding.id %}">
                                                   <i class="fa fa-copy"></i> Apply Template to Finding
@@ -390,7 +395,7 @@
                                         ({{ finding.notes.count }})
                                     </a>
                                   {% endif %}
-                                  {% include "dojo/snippets/tags.html" with tags=finding.tags.alll %}
+                                  {% include "dojo/snippets/tags.html" with tags=finding.tags.all %}
                                 </td>
                                 <td class="nowrap">
                                   {% if finding.cwe > 0 %}
@@ -400,11 +405,17 @@
                                   {% endif %}
                                 </td>
                                 <td class="nowrap">
-                                  {% if finding.cve %}
-                                    <a target="_blank" href="{{ finding.cve|cve_url }}">
-                                        <i class="fa fa-external-link"></i> {{ finding.cve|default:"" }}
-                                    </a>
+                                    {% with finding|first_vulnerability_id as first_vulnerability_id %}
+                                    {% if first_vulnerability_id %}  
+                                    {% if first_vulnerability_id|has_vulnerability_url %}
+                                        <a target="_blank" href="{{ first_vulnerability_id|vulnerability_url }}">
+                                            <i class="fa fa-external-link"></i> {{ first_vulnerability_id }}
+                                        </a>
+                                    {% else %}
+                                        {{ first_vulnerability_id }}
+                                    {% endif %}
                                   {% endif %}
+                                  {% endwith %}
                                 </td>
                                 {% if filter_name == 'Closed' %}
                                   <td class="nowrap">{{ finding.mitigated|date }}</td>

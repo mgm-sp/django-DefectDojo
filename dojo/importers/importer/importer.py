@@ -103,7 +103,8 @@ class DojoDefaultImporter(object):
             if scan_date:
                 item.date = scan_date.date()
 
-            item.service = service
+            if service:
+                item.service = service
 
             item.save(dedupe_option=False)
 
@@ -153,6 +154,8 @@ class DojoDefaultImporter(object):
                     file_upload.file.save(title, ContentFile(data))
                     file_upload.save()
                     item.files.add(file_upload)
+
+            importer_utils.handle_vulnerability_ids(item)
 
             new_findings.append(item)
             # to avoid pushing a finding group multiple times, we push those outside of the loop

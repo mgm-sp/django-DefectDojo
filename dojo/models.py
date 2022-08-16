@@ -14,6 +14,7 @@ from django.contrib.auth.models import Group
 from django.db.models.expressions import Case, When
 from django.urls import reverse
 from django.core.validators import RegexValidator, validate_ipv46_address
+from django.core.files.base import ContentFile
 from django.core.exceptions import ValidationError
 from django.db import models, connection
 from django.db.models import Q, Count
@@ -220,10 +221,15 @@ class UserContactInfo(models.Model):
 
 
 class Dojo_Group(models.Model):
+    AZURE = 'AzureAD'
+    SOCIAL_CHOICES = (
+        (AZURE, _('AzureAD')),
+    )
     name = models.CharField(max_length=255, unique=True)
     description = models.CharField(max_length=4000, null=True, blank=True)
     users = models.ManyToManyField(Dojo_User, through='Dojo_Group_Member', related_name='users', blank=True)
     auth_group = models.ForeignKey(Group, null=True, blank=True, on_delete=models.CASCADE)
+    social_provider = models.CharField(max_length=10, choices=SOCIAL_CHOICES, blank=True, null=True, help_text='Group imported from a social provider.', verbose_name='Social Authentication Provider')
 
     def __str__(self):
         return self.name
@@ -460,6 +466,11 @@ class System_Settings(models.Model):
         blank=False,
         verbose_name=_('Enable Finding Groups'),
         help_text=_("With this setting turned off, the Finding Groups will be disabled."))
+    enable_calendar = models.BooleanField(
+        default=True,
+        blank=False,
+        verbose_name=_('Enable Calendar'),
+        help_text=_("With this setting turned off, the Calendar will be disabled in the user interface."))
     default_group = models.ForeignKey(
         Dojo_Group,
         null=True,
@@ -477,12 +488,6 @@ class System_Settings(models.Model):
         default='',
         blank=True,
         help_text=_("New users will only be assigned to the default group, when their email address matches this regex pattern. This is optional condition."))
-    staff_user_email_pattern = models.CharField(
-        max_length=200,
-        default='',
-        blank=True,
-        verbose_name=_('Email pattern for staff users'),
-        help_text=_("When the email address of a new user created by OAuth2 matches this regex pattern, their is_staff flag will be set to True."))
 
     from dojo.middleware import System_Settings_Manager
     objects = System_Settings_Manager()
@@ -527,7 +532,7 @@ class Contact(models.Model):
     team = models.CharField(max_length=100)
     is_admin = models.BooleanField(default=False)
     is_globally_read_only = models.BooleanField(default=False)
-    updated = models.DateTimeField(editable=False)
+    updated = models.DateTimeField(auto_now=True)
 
 
 class Note_Type(models.Model):
@@ -547,6 +552,13 @@ class NoteHistory(models.Model):
     time = models.DateTimeField(null=True, editable=False,
                                 default=get_current_datetime)
     current_editor = models.ForeignKey(Dojo_User, editable=False, null=True, on_delete=models.CASCADE)
+
+    def copy(self):
+        copy = self
+        copy.pk = None
+        copy.id = None
+        copy.save()
+        return copy
 
 
 class Notes(models.Model):
@@ -569,15 +581,47 @@ class Notes(models.Model):
     def __str__(self):
         return self.entry
 
+    def copy(self):
+        copy = self
+        # Save the necessary ManyToMany relationships
+        old_history = self.history.all()
+        # Wipe the IDs of the new object
+        copy.pk = None
+        copy.id = None
+        # Save the object before setting any ManyToMany relationships
+        copy.save()
+        # Copy the history
+        for history in old_history:
+            copy.history.add(history.copy())
+
+        return copy
+
 
 class FileUpload(models.Model):
     title = models.CharField(max_length=100, unique=True)
     file = models.FileField(upload_to=UniqueUploadNameProvider('uploaded_files'))
 
+    def copy(self):
+        copy = self
+        # Wipe the IDs of the new object
+        copy.pk = None
+        copy.id = None
+        # Add unique modifier to file name
+        copy.title = '{} - clone-{}'.format(self.title, str(uuid4())[:8])
+        # Create new unique file name
+        current_url = self.file.url
+        _, current_full_filename = current_url.rsplit('/', 1)
+        _, extension = current_full_filename.split('.', 1)
+        new_file = ContentFile(self.file.read(), name='{}.{}'.format(uuid4(), extension))
+        copy.file = new_file
+        copy.save()
+
+        return copy
+
 
 class Product_Type(models.Model):
     """Product types represent the top level model, these can be business unit divisions, different offices or locations, development teams, or any other logical way of distinguishing “types” of products.
-
+`
        Examples:
          * IAM Team
          * Internal / 3rd Party
@@ -787,10 +831,10 @@ class Product(models.Model):
     team_manager = models.ForeignKey(Dojo_User, null=True, blank=True,
                                      related_name='team_manager', on_delete=models.RESTRICT)
 
-    created = models.DateTimeField(editable=False, null=True, blank=True)
+    created = models.DateTimeField(auto_now_add=True, null=True)
     prod_type = models.ForeignKey(Product_Type, related_name='prod_type',
                                   null=False, blank=False, on_delete=models.CASCADE)
-    updated = models.DateTimeField(editable=False, null=True, blank=True)
+    updated = models.DateTimeField(auto_now=True, null=True)
     tid = models.IntegerField(default=0, editable=False)
     members = models.ManyToManyField(Dojo_User, through='Product_Member', related_name='product_members', blank=True)
     authorization_groups = models.ManyToManyField(Dojo_Group, through='Product_Group', related_name='product_groups', blank=True)
@@ -1168,6 +1212,36 @@ class Engagement(models.Model):
                                         self.target_start.strftime(
                                             "%b %d, %Y"))
 
+    def copy(self):
+        copy = self
+        # Save the necessary ManyToMany relationships
+        old_notes = self.notes.all()
+        old_files = self.files.all()
+        old_tags = self.tags.all()
+        old_risk_acceptances = self.risk_acceptance.all()
+        old_tests = Test.objects.filter(engagement=self)
+        # Wipe the IDs of the new object
+        copy.pk = None
+        copy.id = None
+        # Save the object before setting any ManyToMany relationships
+        copy.save()
+        # Copy the notes
+        for notes in old_notes:
+            copy.notes.add(notes.copy())
+        # Copy the files
+        for files in old_files:
+            copy.files.add(files.copy())
+        # Copy the tests
+        for test in old_tests:
+            test.copy(engagement=copy)
+        # Copy the risk_acceptances
+        for risk_acceptance in old_risk_acceptances:
+            copy.risk_acceptance.add(risk_acceptance.copy(engagement=copy))
+        # Assign any tags
+        copy.tags.set(old_tags)
+
+        return copy
+
     def get_breadcrumbs(self):
         bc = self.product.get_breadcrumbs()
         bc += [{'title': str(self),
@@ -1226,8 +1300,8 @@ class Endpoint_Status(models.Model):
     false_positive = models.BooleanField(default=False, blank=True)
     out_of_scope = models.BooleanField(default=False, blank=True)
     risk_accepted = models.BooleanField(default=False, blank=True)
-    endpoint = models.ForeignKey('Endpoint', null=True, blank=True, on_delete=models.CASCADE, related_name='status_endpoint')
-    finding = models.ForeignKey('Finding', null=True, blank=True, on_delete=models.CASCADE, related_name='status_finding')
+    endpoint = models.ForeignKey('Endpoint', null=False, blank=False, on_delete=models.CASCADE, related_name='status_endpoint')
+    finding = models.ForeignKey('Finding', null=False, blank=False, on_delete=models.CASCADE, related_name='status_finding')
 
     @property
     def age(self):
@@ -1244,6 +1318,18 @@ class Endpoint_Status(models.Model):
         for field in self._meta.get_fields():
             field_values.append(str(getattr(self, field.name, '')))
         return ' '.join(field_values)
+
+    def copy(self, finding=None):
+        copy = self
+        current_endpoint = self.endpoint
+        copy.pk = None
+        copy.id = None
+        if finding:
+            copy.finding = finding
+        copy.endpoint = current_endpoint
+        copy.save()
+
+        return copy
 
     class Meta:
         indexes = [
@@ -1513,14 +1599,22 @@ class Endpoint(models.Model):
                 query_parts.append(u"=".join([k, v]))
         query_string = u"&".join(query_parts)
 
+        protocol = url.scheme if url.scheme != '' else None
+        userinfo = ':'.join(url.userinfo) if url.userinfo not in [(), ('',)] else None
+        host = url.host if url.host != '' else None
+        port = url.port
+        path = '/'.join(url.path)[:500] if url.path not in [None, (), ('',)] else None
+        query = query_string[:1000] if query_string is not None and query_string != '' else None
+        fragment = url.fragment[:500] if url.fragment is not None and url.fragment != '' else None
+
         return Endpoint(
-            protocol=url.scheme if url.scheme != '' else None,
-            userinfo=':'.join(url.userinfo) if url.userinfo not in [(), ('',)] else None,
-            host=url.host if url.host != '' else None,
-            port=url.port,
-            path='/'.join(url.path)[:500] if url.path not in [None, (), ('',)] else None,
-            query=query_string[:1000] if query_string is not None and query_string != '' else None,
-            fragment=url.fragment[:500] if url.fragment is not None and url.fragment != '' else None
+            protocol=protocol,
+            userinfo=userinfo,
+            host=host,
+            port=port,
+            path=path,
+            query=query,
+            fragment=fragment,
         )
 
     def get_absolute_url(self):
@@ -1550,7 +1644,7 @@ class Sonarqube_Issue(models.Model):
 
 class Sonarqube_Issue_Transition(models.Model):
     sonarqube_issue = models.ForeignKey(Sonarqube_Issue, on_delete=models.CASCADE, db_index=True)
-    created = models.DateTimeField(null=False, editable=False, default=now)
+    created = models.DateTimeField(auto_now_add=True, null=False)
     finding_status = models.CharField(max_length=100)
     sonarqube_status = models.CharField(max_length=50)
     transitions = models.CharField(max_length=100)
@@ -1611,6 +1705,34 @@ class Test(models.Model):
         bc += [{'title': str(self),
                 'url': reverse('view_test', args=(self.id,))}]
         return bc
+
+    def copy(self, engagement=None):
+        copy = self
+        # Save the necessary ManyToMany relationships
+        old_notes = self.notes.all()
+        old_files = self.files.all()
+        old_tags = self.tags.all()
+        old_findings = Finding.objects.filter(test=self)
+        # Wipe the IDs of the new object
+        copy.pk = None
+        copy.id = None
+        if engagement:
+            copy.engagement = engagement
+        # Save the object before setting any ManyToMany relationships
+        copy.save()
+        # Copy the notes
+        for notes in old_notes:
+            copy.notes.add(notes.copy())
+        # Copy the files
+        for files in old_files:
+            copy.files.add(files.copy())
+        # Copy the Findings
+        for finding in old_findings:
+            finding.copy(test=copy)
+        # Assign any tags
+        copy.tags.set(old_tags)
+
+        return copy
 
     # only used by bulk risk acceptance api
     @property
@@ -1763,16 +1885,13 @@ class Finding(models.Model):
                             help_text=_("(readonly)The date used as start date for SLA calculation. Set by expiring risk acceptances. Empty by default, causing a fallback to 'date'."))
 
     cwe = models.IntegerField(default=0, null=True, blank=True,
-                              verbose_name=_('CWE'),
+                              verbose_name=_("CWE"),
                               help_text=_("The CWE number associated with this flaw."))
-    cve_regex = RegexValidator(regex=r'^[A-Z]{1,10}(-\d+)+$',
-                               message="Vulnerability ID must be entered in the format: 'ABC-9999-9999'.")
-    cve = models.CharField(validators=[cve_regex],
-                           max_length=28,
+    cve = models.CharField(max_length=50,
                            null=True,
                            blank=False,
-                           verbose_name=_('CVE'),
-                           help_text=_('The Common Vulnerabilities and Exposures (CVE) associated with this flaw.'))
+                           verbose_name=_("Vulnerability Id"),
+                           help_text=_("An id of a vulnerability in a security advisory associated with this finding. Can be a Common Vulnerabilities and Exposures (CVE) or from other sources."))
     cvssv3_regex = RegexValidator(regex=r'^AV:[NALP]|AC:[LH]|PR:[UNLH]|UI:[NR]|S:[UC]|[CIA]:[NLH]', message="CVSS must be entered in format: 'AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H'")
     cvssv3 = models.TextField(validators=[cvssv3_regex],
                               max_length=117,
@@ -2095,6 +2214,44 @@ class Finding(models.Model):
         self.unsaved_response = None
         self.unsaved_tags = None
         self.unsaved_files = None
+        self.unsaved_vulnerability_ids = None
+
+    def copy(self, test=None):
+        copy = self
+        # Save the necessary ManyToMany relationships
+        old_notes = self.notes.all()
+        old_files = self.files.all()
+        old_endpoint_status = self.endpoint_status.all()
+        old_endpoints = self.endpoints.all()
+        old_reviewers = self.reviewers.all()
+        old_found_by = self.found_by.all()
+        old_tags = self.tags.all()
+        # Wipe the IDs of the new object
+        copy.pk = None
+        copy.id = None
+        if test:
+            copy.test = test
+        # Save the object before setting any ManyToMany relationships
+        copy.save()
+        # Copy the notes
+        for notes in old_notes:
+            copy.notes.add(notes.copy())
+        # Copy the files
+        for files in old_files:
+            copy.files.add(files.copy())
+        # Copy the endpoint_status
+        for endpoint_status in old_endpoint_status:
+            copy.endpoint_status.add(endpoint_status.copy(finding=copy))
+        # Assign any endpoints
+        copy.endpoints.set(old_endpoints)
+        # Assign any reviewers
+        copy.reviewers.set(old_reviewers)
+        # Assign any found_by
+        copy.found_by.set(old_found_by)
+        # Assign any tags
+        copy.tags.set(old_tags)
+
+        return copy
 
     def get_absolute_url(self):
         from django.urls import reverse
@@ -2153,15 +2310,20 @@ class Finding(models.Model):
 
         fields_to_hash = ''
         for hashcodeField in hash_code_fields:
-            if(hashcodeField != 'endpoints'):
-                # Generically use the finding attribute having the same name, converts to str in case it's integer
-                fields_to_hash = fields_to_hash + str(getattr(self, hashcodeField))
-                deduplicationLogger.debug(hashcodeField + ' : ' + str(getattr(self, hashcodeField)))
-            else:
+            if hashcodeField == 'endpoints':
                 # For endpoints, need to compute the field
                 myEndpoints = self.get_endpoints()
                 fields_to_hash = fields_to_hash + myEndpoints
                 deduplicationLogger.debug(hashcodeField + ' : ' + myEndpoints)
+            elif hashcodeField == 'vulnerability_ids':
+                # For vulnerability_ids, need to compute the field
+                my_vulnerability_ids = self.get_vulnerability_ids()
+                fields_to_hash = fields_to_hash + my_vulnerability_ids
+                deduplicationLogger.debug(hashcodeField + ' : ' + my_vulnerability_ids)
+            else:
+                # Generically use the finding attribute having the same name, converts to str in case it's integer
+                fields_to_hash = fields_to_hash + str(getattr(self, hashcodeField))
+                deduplicationLogger.debug(hashcodeField + ' : ' + str(getattr(self, hashcodeField)))
         deduplicationLogger.debug("compute_hash_code - fields_to_hash = " + fields_to_hash)
         return self.hash_fields(fields_to_hash)
 
@@ -2169,6 +2331,35 @@ class Finding(models.Model):
         fields_to_hash = self.title + str(self.cwe) + str(self.line) + str(self.file_path) + self.description
         deduplicationLogger.debug("compute_hash_code_legacy - fields_to_hash = " + fields_to_hash)
         return self.hash_fields(fields_to_hash)
+
+    # Get vulnerability_ids to use for hash_code computation
+    def get_vulnerability_ids(self):
+        vulnerability_id_str = ''
+        if self.id is None:
+            if self.unsaved_vulnerability_ids:
+                deduplicationLogger.debug("get_vulnerability_ids before the finding was saved")
+                # convert list of unsaved vulnerability_ids to the list of their canonical representation
+                vulnerability_id_str_list = list(
+                    map(
+                        lambda vulnerability_id: str(vulnerability_id),
+                        self.unsaved_vulnerability_ids
+                    ))
+                # deduplicate (usually done upon saving finding) and sort endpoints
+                vulnerability_id_str = ''.join(sorted(list(dict.fromkeys(vulnerability_id_str_list))))
+            else:
+                deduplicationLogger.debug("finding has no unsaved vulnerability references")
+        else:
+            vulnerability_ids = Vulnerability_Id.objects.filter(finding=self)
+            deduplicationLogger.debug("get_vulnerability_ids after the finding was saved. Vulnerability references count: " + str(vulnerability_ids.count()))
+            # convert list of vulnerability_ids to the list of their canonical representation
+            vulnerability_id_str_list = list(
+                map(
+                    lambda vulnerability_id: str(vulnerability_id),
+                    vulnerability_ids.all()
+                ))
+            # sort vulnerability_ids strings
+            vulnerability_id_str = ''.join(sorted(vulnerability_id_str_list))
+        return vulnerability_id_str
 
     # Get endpoints to use for hash_code computation
     # (This sometimes reports "None")
@@ -2408,29 +2599,6 @@ class Finding(models.Model):
     def has_finding_group(self):
         return self.finding_group is not None
 
-    def long_desc(self):
-        long_desc = ''
-        long_desc += '*' + self.title + '*\n\n'
-        long_desc += '*Severity:* ' + str(self.severity) + '\n\n'
-        long_desc += '*Cve:* ' + str(self.cve) + '\n\n'
-        long_desc += '*CVSS v3:* ' + str(self.cvssv3) + '\n\n'
-        long_desc += '*Product/Engagement:* ' + self.test.engagement.product.name + ' / ' + self.test.engagement.name + '\n\n'
-        if self.test.engagement.branch_tag:
-            long_desc += '*Branch/Tag:* ' + self.test.engagement.branch_tag + '\n\n'
-        if self.test.engagement.build_id:
-            long_desc += '*BuildID:* ' + self.test.engagement.build_id + '\n\n'
-        if self.test.engagement.commit_hash:
-            long_desc += '*Commit hash:* ' + self.test.engagement.commit_hash + '\n\n'
-        long_desc += '*Systems*: \n\n'
-
-        for e in self.endpoints.all():
-            long_desc += str(e) + '\n\n'
-        long_desc += '*Description*: \n' + str(self.description) + '\n\n'
-        long_desc += '*Mitigation*: \n' + str(self.mitigation) + '\n\n'
-        long_desc += '*Impact*: \n' + str(self.impact) + '\n\n'
-        long_desc += '*References*:' + str(self.references)
-        return long_desc
-
     def save_no_options(self, *args, **kwargs):
         return self.save(dedupe_option=False, false_history=False, rules_option=False, product_grading_option=False,
              issue_updater_option=False, push_to_jira=False, user=None, *args, **kwargs)
@@ -2597,6 +2765,29 @@ class Finding(models.Model):
 
         return self.references
 
+    @cached_property
+    def vulnerability_ids(self):
+        # Get vulnerability ids from database and convert to list of strings
+        vulnerability_ids_model = self.vulnerability_id_set.all()
+        vulnerability_ids = list()
+        for vulnerability_id in vulnerability_ids_model:
+            vulnerability_ids.append(vulnerability_id.vulnerability_id)
+
+        # Synchronize the cve field with the unsaved_vulnerability_ids
+        # We do this to be as flexible as possible to handle the fields until
+        # the cve field is not needed anymore and can be removed.
+        if vulnerability_ids and self.cve:
+            # Make sure the first entry of the list is the value of the cve field
+            vulnerability_ids.insert(0, self.cve)
+        elif not vulnerability_ids and self.cve:
+            # If there is no list, make one with the value of the cve field
+            vulnerability_ids = [self.cve]
+
+        # Remove duplicates
+        vulnerability_ids = list(dict.fromkeys(vulnerability_ids))
+
+        return vulnerability_ids
+
 
 class FindingAdmin(admin.ModelAdmin):
     # For efficiency with large databases, display many-to-many fields with raw
@@ -2609,6 +2800,18 @@ class FindingAdmin(admin.ModelAdmin):
 
 Finding.endpoints.through.__str__ = lambda \
     x: "Endpoint: " + str(x.endpoint)
+
+
+class Vulnerability_Id(models.Model):
+    finding = models.ForeignKey(Finding, editable=False, on_delete=models.CASCADE)
+    vulnerability_id = models.TextField(max_length=50, blank=False, null=False)
+
+    def __str__(self):
+        return self.vulnerability_id
+
+    def get_absolute_url(self):
+        from django.urls import reverse
+        return reverse('view_finding', args=[str(self.finding.id)])
 
 
 class Stub_Finding(models.Model):
@@ -2687,9 +2890,6 @@ class Finding_Group(TimeStampedModel):
 
         return min([find.sla_deadline() for find in self.findings.all() if find.sla_deadline()], default=None)
 
-    # def cves(self):
-    #     return ', '.join([find.cve for find in self.findings.all() if find.cve is not None])
-
     def status(self):
         if not self.findings.all():
             return None
@@ -2720,9 +2920,11 @@ class Finding_Group(TimeStampedModel):
 class Finding_Template(models.Model):
     title = models.TextField(max_length=1000)
     cwe = models.IntegerField(default=None, null=True, blank=True)
-    cve_regex = RegexValidator(regex=r'^[A-Z]{1,10}(-\d+)+$',
-                               message="Vulnerability ID must be entered in the format: 'ABC-9999-9999'.")
-    cve = models.CharField(validators=[cve_regex], max_length=28, null=True, blank=False)
+    cve = models.CharField(max_length=50,
+                           null=True,
+                           blank=False,
+                           verbose_name="Vulnerability Id",
+                           help_text="An id of a vulnerability in a security advisory associated with this finding. Can be a Common Vulnerabilities and Exposures (CVE) or from other sources.")
     cvssv3_regex = RegexValidator(regex=r'^AV:[NALP]|AC:[LH]|PR:[UNLH]|UI:[NR]|S:[UC]|[CIA]:[NLH]', message="CVSS must be entered in format: 'AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H'")
     cvssv3 = models.TextField(validators=[cvssv3_regex], max_length=117, null=True)
     severity = models.CharField(max_length=200, null=True, blank=True)
@@ -2754,6 +2956,34 @@ class Finding_Template(models.Model):
     def get_absolute_url(self):
         from django.urls import reverse
         return reverse('edit_template', args=[str(self.id)])
+
+    @cached_property
+    def vulnerability_ids(self):
+        # Get vulnerability ids from database and convert to list of strings
+        vulnerability_ids_model = self.vulnerability_id_template_set.all()
+        vulnerability_ids = list()
+        for vulnerability_id in vulnerability_ids_model:
+            vulnerability_ids.append(vulnerability_id.vulnerability_id)
+
+        # Synchronize the cve field with the unsaved_vulnerability_ids
+        # We do this to be as flexible as possible to handle the fields until
+        # the cve field is not needed anymore and can be removed.
+        if vulnerability_ids and self.cve:
+            # Make sure the first entry of the list is the value of the cve field
+            vulnerability_ids.insert(0, self.cve)
+        elif not vulnerability_ids and self.cve:
+            # If there is no list, make one with the value of the cve field
+            vulnerability_ids = [self.cve]
+
+        # Remove duplicates
+        vulnerability_ids = list(dict.fromkeys(vulnerability_ids))
+
+        return vulnerability_ids
+
+
+class Vulnerability_Id_Template(models.Model):
+    finding_template = models.ForeignKey(Finding_Template, editable=False, on_delete=models.CASCADE)
+    vulnerability_id = models.TextField(max_length=50, blank=False, null=False)
 
 
 class Check_List(models.Model):
@@ -2865,8 +3095,8 @@ class Risk_Acceptance(models.Model):
     restart_sla_expired = models.BooleanField(default=False, null=False, verbose_name=_('Restart SLA on expiration'), help_text=_("When enabled, the SLA for findings is restarted when the risk acceptance expires."))
 
     notes = models.ManyToManyField(Notes, editable=False)
-    created = models.DateTimeField(null=False, editable=False, auto_now_add=True)
-    updated = models.DateTimeField(editable=False, auto_now=True)
+    created = models.DateTimeField(auto_now_add=True, null=False)
+    updated = models.DateTimeField(auto_now=True, editable=False)
 
     def __str__(self):
         return str(self.name)
@@ -2900,6 +3130,25 @@ class Risk_Acceptance(models.Model):
             return engs[0]
 
         return None
+
+    def copy(self, engagement=None):
+        copy = self
+        # Save the necessary ManyToMany relationships
+        old_notes = self.notes.all()
+        old_accepted_findings_hash_codes = [finding.hash_code for finding in self.accepted_findings.all()]
+        # Wipe the IDs of the new object
+        copy.pk = None
+        copy.id = None
+        # Save the object before setting any ManyToMany relationships
+        copy.save()
+        # Copy the notes
+        for notes in old_notes:
+            copy.notes.add(notes.copy())
+        # Assign any accepted findings
+        if engagement:
+            new_accepted_findings = Finding.objects.filter(test__engagement=engagement, hash_code__in=old_accepted_findings_hash_codes, risk_accepted=True).distinct()
+            copy.accepted_findings.set(new_accepted_findings)
+        return copy
 
 
 class FileAccessToken(models.Model):
@@ -3138,7 +3387,7 @@ class JIRA_Issue(models.Model):
         elif type(obj) == Engagement:
             self.engagement = obj
         else:
-            raise ValueError('unknown objec type whiel creating JIRA_Issue: %s', to_str_typed(obj))
+            raise ValueError('unknown objec type whiel creating JIRA_Issue: %s' % to_str_typed(obj))
 
     def __str__(self):
         text = ""
@@ -3255,7 +3504,7 @@ class Alerts(models.Model):
     source = models.CharField(max_length=100, default='Generic')
     icon = models.CharField(max_length=25, default='icon-user-check')
     user_id = models.ForeignKey(Dojo_User, null=True, editable=False, on_delete=models.CASCADE)
-    created = models.DateTimeField(null=False, editable=False, default=now)
+    created = models.DateTimeField(auto_now_add=True, null=False)
 
     class Meta:
         ordering = ['-created']
@@ -3326,7 +3575,7 @@ class Languages(models.Model):
     blank = models.IntegerField(blank=True, null=True, verbose_name=_('Number of blank lines'))
     comment = models.IntegerField(blank=True, null=True, verbose_name=_('Number of comment lines'))
     code = models.IntegerField(blank=True, null=True, verbose_name=_('Number of code lines'))
-    created = models.DateTimeField(null=False, editable=False, default=now)
+    created = models.DateTimeField(auto_now_add=True, null=False)
 
     def __str__(self):
         return self.language.language
@@ -3344,7 +3593,7 @@ class App_Analysis(models.Model):
     icon = models.CharField(max_length=200, null=True, blank=True)
     website = models.URLField(max_length=400, null=True, blank=True)
     website_found = models.URLField(max_length=400, null=True, blank=True)
-    created = models.DateTimeField(null=False, editable=False, default=now)
+    created = models.DateTimeField(auto_now_add=True, null=False)
 
     tags = TagField(blank=True, force_lowercase=True)
 
@@ -3354,7 +3603,7 @@ class App_Analysis(models.Model):
 
 class Objects_Review(models.Model):
     name = models.CharField(max_length=100, null=True, blank=True)
-    created = models.DateTimeField(null=False, editable=False, default=now)
+    created = models.DateTimeField(auto_now_add=True, null=False)
 
     def __str__(self):
         return self.name
@@ -3370,7 +3619,7 @@ class Objects_Product(models.Model):
     artifact = models.CharField(max_length=400, verbose_name=_('Artifact'),
                                 null=True, blank=True)
     review_status = models.ForeignKey(Objects_Review, on_delete=models.CASCADE)
-    created = models.DateTimeField(null=False, editable=False, default=now)
+    created = models.DateTimeField(auto_now_add=True, null=False)
 
     tags = TagField(blank=True, force_lowercase=True, help_text=_("Add tags that help describe this object. Choose from the list or add new tags. Press Enter key to add."))
 
@@ -3388,8 +3637,8 @@ class Objects_Product(models.Model):
 
 class Testing_Guide_Category(models.Model):
     name = models.CharField(max_length=300)
-    created = models.DateTimeField(null=False, editable=False, default=now)
-    updated = models.DateTimeField(editable=False, default=now)
+    created = models.DateTimeField(auto_now_add=True, null=False)
+    updated = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ('name',)
@@ -3406,8 +3655,8 @@ class Testing_Guide(models.Model):
     objective = models.CharField(max_length=800, help_text=_("Objective of the test"))
     how_to_test = models.TextField(default=None, help_text=_("How to test the objective"))
     results_expected = models.CharField(max_length=800, help_text=_("What the results look like for a test"))
-    created = models.DateTimeField(null=False, editable=False, default=now)
-    updated = models.DateTimeField(editable=False, default=now)
+    created = models.DateTimeField(auto_now_add=True, null=False)
+    updated = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return self.testing_guide_category.name + ': ' + self.name
@@ -3422,8 +3671,8 @@ class Benchmark_Type(models.Model):
     benchmark_source = models.CharField(max_length=20, blank=False,
                                         null=True, choices=source,
                                         default='OWASP ASVS')
-    created = models.DateTimeField(null=False, editable=False, default=now)
-    updated = models.DateTimeField(editable=False, default=now)
+    created = models.DateTimeField(auto_now_add=True, null=False)
+    updated = models.DateTimeField(auto_now=True)
     enabled = models.BooleanField(default=True)
 
     def __str__(self):
@@ -3436,8 +3685,8 @@ class Benchmark_Category(models.Model):
     objective = models.TextField()
     references = models.TextField(blank=True, null=True)
     enabled = models.BooleanField(default=True)
-    created = models.DateTimeField(null=False, editable=False, default=now)
-    updated = models.DateTimeField(editable=False, default=now)
+    created = models.DateTimeField(auto_now_add=True, null=False)
+    updated = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ('name',)
@@ -3457,8 +3706,8 @@ class Benchmark_Requirement(models.Model):
     enabled = models.BooleanField(default=True)
     cwe_mapping = models.ManyToManyField(CWE, blank=True)
     testing_guide = models.ManyToManyField(Testing_Guide, blank=True)
-    created = models.DateTimeField(null=False, editable=False, default=now)
-    updated = models.DateTimeField(editable=False, default=now)
+    created = models.DateTimeField(auto_now_add=True, null=False)
+    updated = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return str(self.objective_number) + ': ' + self.category.name
@@ -3472,8 +3721,8 @@ class Benchmark_Product(models.Model):
     enabled = models.BooleanField(default=True,
                                   help_text=_('Applicable for this specific product.'))
     notes = models.ManyToManyField(Notes, blank=True, editable=False)
-    created = models.DateTimeField(null=False, editable=False, default=now)
-    updated = models.DateTimeField(editable=False, default=now)
+    created = models.DateTimeField(auto_now_add=True, null=False)
+    updated = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return self.product.name + ': ' + self.control.objective_number + ': ' + self.control.category.name
@@ -3501,8 +3750,8 @@ class Benchmark_Product_Summary(models.Model):
     asvs_level_3_benchmark = models.IntegerField(null=False, default=0, help_text=_("Total number of active benchmarks for this application."))
     asvs_level_3_score = models.IntegerField(null=False, default=0, help_text=_("ASVS Level 3 Score"))
     publish = models.BooleanField(default=False, help_text=_('Publish score to Product.'))
-    created = models.DateTimeField(null=False, editable=False, default=now)
-    updated = models.DateTimeField(editable=False, default=now)
+    created = models.DateTimeField(auto_now_add=True, null=False)
+    updated = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return self.product.name + ': ' + self.benchmark_type.name
