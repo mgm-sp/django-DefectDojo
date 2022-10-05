@@ -8,8 +8,10 @@ from django.contrib.auth import logout
 from django.contrib.auth.decorators import user_passes_test, login_required
 from django.contrib.auth.forms import AuthenticationForm, PasswordResetForm
 from django.contrib.auth.views import LoginView, PasswordResetView
+from django.core.mail import get_connection
+from django.core.mail.backends.smtp import EmailBackend
 from django.core import serializers
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import DEFAULT_DB_ALIAS
 from django.db.models import Q
 from django.db.models.deletion import RestrictedError
@@ -41,6 +43,9 @@ logger = logging.getLogger(__name__)
 # #  Django Rest Framework API v2
 
 def api_v2_key(request):
+    # This check should not be necessary because url should not be in 'urlpatterns' but we never know
+    if not settings.API_TOKENS_ENABLED:
+        raise PermissionDenied
     api_key = ''
     form = APIKeyForm(instance=request.user)
     if request.method == 'POST':  # new key requested
@@ -574,10 +579,18 @@ class DojoPasswordResetForm(PasswordResetForm):
         url = hyperlink.parse(settings.SITE_URL)
         context['site_name'] = url.host
         context['protocol'] = url.scheme
-        context['domain'] = settings.SITE_URL[len(url.scheme + '://'):]
+        context['domain'] = settings.SITE_URL[len(f'{url.scheme}://'):]
 
-        super().send_mail(subject_template_name, email_template_name,
-                          context, from_email, to_email, html_email_template_name)
+        super().send_mail(subject_template_name, email_template_name, context, from_email, to_email, html_email_template_name)
+
+    def clean(self):
+        try:
+            connection = get_connection()
+            if isinstance(connection, EmailBackend):
+                connection.open()
+                connection.close()
+        except Exception:
+            raise ValidationError("SMTP server is not configured correctly...")
 
 
 class DojoPasswordResetView(PasswordResetView):
