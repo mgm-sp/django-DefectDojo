@@ -7,7 +7,7 @@
 # Using 3.5.7 to avoid compatibility issues that may be introduced by python 3.6 and 3.7.
 # Please upgrade before end-of-life in september 2020!
 # Ref: https://devguide.python.org/#branchstatus
-FROM python:3.5.7-buster@sha256:4598d4365bb7a8628ba840f87406323e699c4da01ae6f926ff33787c63230779 as build
+FROM python:3.11.1-buster@sha256:d51c0d6bc9458b4e6391746997dd2b5a1d1fd9160282bf1a57ffe4f6d4993f6d as build
 WORKDIR /app
 RUN \
   apt-get -y update && \
