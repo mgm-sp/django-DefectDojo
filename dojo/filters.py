@@ -2,7 +2,7 @@ import collections
 from drf_spectacular.types import OpenApiTypes
 
 from drf_spectacular.utils import extend_schema_field
-from dojo.finding.helper import ACCEPTED_FINDINGS_QUERY, CLOSED_FINDINGS_QUERY, FALSE_POSITIVE_FINDINGS_QUERY, INACTIVE_FINDINGS_QUERY, OPEN_FINDINGS_QUERY, OUT_OF_SCOPE_FINDINGS_QUERY, VERIFIED_FINDINGS_QUERY, UNDER_REVIEW_QUERY
+from dojo.finding.helper import ACCEPTED_FINDINGS_QUERY, NOT_ACCEPTED_FINDINGS_QUERY, WAS_ACCEPTED_FINDINGS_QUERY, CLOSED_FINDINGS_QUERY, FALSE_POSITIVE_FINDINGS_QUERY, INACTIVE_FINDINGS_QUERY, OPEN_FINDINGS_QUERY, OUT_OF_SCOPE_FINDINGS_QUERY, VERIFIED_FINDINGS_QUERY, UNDER_REVIEW_QUERY
 import logging
 from datetime import timedelta, datetime
 from django import forms
@@ -10,12 +10,13 @@ from django.apps import apps
 from auditlog.models import LogEntry
 from django.conf import settings
 import six
-from django.utils.translation import ugettext_lazy as _
+from django.utils.translation import gettext_lazy as _
 from django_filters import FilterSet, CharFilter, OrderingFilter, \
     ModelMultipleChoiceFilter, ModelChoiceFilter, MultipleChoiceFilter, \
     BooleanFilter, NumberFilter, DateFilter
 from django_filters import rest_framework as filters
 from django_filters.filters import ChoiceFilter, _truncate
+from django.db.models import JSONField
 import pytz
 from django.db.models import Q
 from dojo.models import Dojo_User, Finding_Group, Product_API_Scan_Configuration, Product_Type, Finding, Product, Test_Import, Test_Type, \
@@ -206,7 +207,7 @@ def get_tags_label_from_model(model):
         return 'Tags (Unknown)'
 
 
-def get_finding_filter_fields(metrics=False, similar=False):
+def get_finding_filterset_fields(metrics=False, similar=False):
     fields = []
 
     if similar:
@@ -500,15 +501,12 @@ class ReportRiskAcceptanceFilter(ChoiceFilter):
 
     def accepted(self, qs, name):
         # return qs.filter(risk_acceptance__isnull=False)
-        from dojo.finding.views import ACCEPTED_FINDINGS_QUERY
         return qs.filter(ACCEPTED_FINDINGS_QUERY)
 
     def not_accepted(self, qs, name):
-        from dojo.finding.views import NOT_ACCEPTED_FINDINGS_QUERY
         return qs.filter(NOT_ACCEPTED_FINDINGS_QUERY)
 
     def was_accepted(self, qs, name):
-        from dojo.finding.views import WAS_ACCEPTED_FINDINGS_QUERY
         return qs.filter(WAS_ACCEPTED_FINDINGS_QUERY)
 
     options = {
@@ -873,6 +871,7 @@ class ApiEngagementFilter(DojoFilter):
 
 class ProductFilter(DojoFilter):
     name = CharFilter(lookup_expr='icontains', label="Product Name")
+    name_exact = CharFilter(field_name='name', lookup_expr='iexact', label="Exact Product Name")
     prod_type = ModelMultipleChoiceFilter(
         queryset=Product_Type.objects.none(),
         label="Product Type")
@@ -971,6 +970,7 @@ class ProductFilter(DojoFilter):
         # tuple-mapping retains order
         fields=(
             ('name', 'name'),
+            ('name_exact', 'name_exact'),
             ('prod_type__name', 'prod_type__name'),
             ('business_criticality', 'business_criticality'),
             ('platform', 'platform'),
@@ -981,6 +981,7 @@ class ProductFilter(DojoFilter):
         ),
         field_labels={
             'name': 'Product Name',
+            'name_exact': 'Exact Product Name',
             'prod_type__name': 'Product Type',
             'business_criticality': 'Business Criticality',
             'platform': 'Platform ',
@@ -1005,7 +1006,7 @@ class ProductFilter(DojoFilter):
 
     class Meta:
         model = Product
-        fields = ['name', 'prod_type', 'business_criticality', 'platform', 'lifecycle', 'origin', 'external_audience',
+        fields = ['name', 'name_exact', 'prod_type', 'business_criticality', 'platform', 'lifecycle', 'origin', 'external_audience',
                   'internet_accessible', 'tags']
 
 
@@ -1015,6 +1016,7 @@ class ApiProductFilter(DojoFilter):
     internet_accessible = BooleanFilter(field_name='internet_accessible')
     # CharFilter
     name = CharFilter(lookup_expr='icontains')
+    name_exact = CharFilter(field_name='name', lookup_expr='iexact')
     description = CharFilter(lookup_expr='icontains')
     business_criticality = CharFilter(method=custom_filter, field_name='business_criticality')
     platform = CharFilter(method=custom_filter, field_name='platform')
@@ -1105,7 +1107,7 @@ class ApiFindingFilter(DojoFilter):
     references = CharFilter(lookup_expr='icontains')
     severity = CharFilter(method=custom_filter, field_name='severity')
     severity_justification = CharFilter(lookup_expr='icontains')
-    step_to_reproduce = CharFilter(lookup_expr='icontains')
+    steps_to_reproduce = CharFilter(lookup_expr='icontains')
     unique_id_from_tool = CharFilter(lookup_expr='icontains')
     title = CharFilter(lookup_expr='icontains')
     # DateRangeFilter
@@ -1196,7 +1198,7 @@ class ApiFindingFilter(DojoFilter):
     class Meta:
         model = Finding
         exclude = ['url', 'thread_id', 'notes', 'files',
-                   'line', 'endpoint_status', 'cve']
+                   'line', 'cve']
 
 
 class FindingFilter(FindingFilterWithTags):
@@ -1355,13 +1357,13 @@ class FindingFilter(FindingFilterWithTags):
 
     class Meta:
         model = Finding
-        fields = get_finding_filter_fields()
+        fields = get_finding_filterset_fields()
 
         exclude = ['url', 'description', 'mitigation', 'impact',
                    'endpoints', 'references',
                    'thread_id', 'notes', 'scanner_confidence',
                    'numerical_severity', 'line', 'duplicate_finding',
-                   'hash_code', 'endpoint_status',
+                   'hash_code',
                    'reviewers',
                    'created', 'files', 'sla_start_date', 'cvssv3',
                    'severity_justification', 'steps_to_reproduce']
@@ -1422,7 +1424,7 @@ class SimilarFindingFilter(FindingFilter):
     class Meta(FindingFilter.Meta):
         model = Finding
         # slightly different fields from FindingFilter, but keep the same ordering for UI consistency
-        fields = get_finding_filter_fields(similar=True)
+        fields = get_finding_filterset_fields(similar=True)
 
     def __init__(self, data=None, *args, **kwargs):
         self.user = None
@@ -1596,7 +1598,7 @@ class MetricsFindingFilter(FindingFilter):
 
     class Meta(FindingFilter.Meta):
         model = Finding
-        fields = get_finding_filter_fields(metrics=True)
+        fields = get_finding_filterset_fields(metrics=True)
 
 
 class MetricsEndpointFilter(FilterSet):
@@ -1785,7 +1787,7 @@ class EndpointFilter(DojoFilter):
 
     class Meta:
         model = Endpoint
-        exclude = ['endpoint_status']
+        exclude = ['findings']
 
 
 class ApiEndpointFilter(DojoFilter):
@@ -1968,7 +1970,7 @@ class EndpointReportFilter(DojoFilter):
 
     class Meta:
         model = Endpoint
-        exclude = ['product', 'endpoint_status']
+        exclude = ['product']
 
 
 class ReportFindingFilter(FindingFilterWithTags):
@@ -1997,8 +1999,8 @@ class ReportFindingFilter(FindingFilterWithTags):
         model = Finding
         # exclude sonarqube issue as by default it will show all without checking permissions
         exclude = ['date', 'cwe', 'url', 'description', 'mitigation', 'impact',
-                   'endpoint', 'references', 'test', 'sonarqube_issue',
-                   'thread_id', 'notes', 'endpoints', 'endpoint_status',
+                   'references', 'test', 'sonarqube_issue',
+                   'thread_id', 'notes', 'endpoints',
                    'numerical_severity', 'reporter', 'last_reviewed',
                    'jira_creation', 'jira_change', 'files']
 
@@ -2135,6 +2137,14 @@ class LogEntryFilter(DojoFilter):
         model = LogEntry
         exclude = ['content_type', 'object_pk', 'object_id', 'object_repr',
                    'changes', 'additional_data', 'remote_addr']
+        filter_overrides = {
+            JSONField: {
+                'filter_class': CharFilter,
+                'extra': lambda f: {
+                    'lookup_expr': 'icontains',
+                }
+            }
+        }
 
 
 class ProductTypeFilter(DojoFilter):
