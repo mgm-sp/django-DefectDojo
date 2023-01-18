@@ -5,7 +5,7 @@ celery==4.3.0
 coverage==4.5.3
 defusedxml==0.6.0
 django_celery_results==1.1.1
-django-auditlog==0.4.5
+django-auditlog==2.2.2
 git+https://github.com/Maffooch/django-custom-field.git@master#egg=django-custom-field
 django-dbbackup>=3.2.0
 django-environ==0.4.5
