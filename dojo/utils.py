@@ -1649,7 +1649,7 @@ def get_full_url(relative_url):
     if settings.SITE_URL:
         return settings.SITE_URL + relative_url
     else:
-        logger.warn('SITE URL undefined in settings, full_url cannot be created')
+        logger.warning('SITE URL undefined in settings, full_url cannot be created')
         return "settings.SITE_URL" + relative_url
 
 
@@ -1657,7 +1657,7 @@ def get_site_url():
     if settings.SITE_URL:
         return settings.SITE_URL
     else:
-        logger.warn('SITE URL undefined in settings, full_url cannot be created')
+        logger.warning('SITE URL undefined in settings, full_url cannot be created')
         return "settings.SITE_URL"
 
 
@@ -2290,6 +2290,8 @@ def get_password_requirements_string():
         password_requirements_string = s.rsplit(', ', 1)[0] + ' and ' + s.rsplit(', ', 1)[1]
     elif s.count(', ') > 1:
         password_requirements_string = s.rsplit(', ', 1)[0] + ', and ' + s.rsplit(', ', 1)[1]
+    else:
+        password_requirements_string = s
 
     return password_requirements_string + '.'
 

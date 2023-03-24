@@ -490,7 +490,7 @@ def prefetch_for_view_tests(tests):
         prefetched = prefetched.annotate(total_reimport_count=Count('test_import__id', filter=Q(test_import__type=Test_Import.REIMPORT_TYPE), distinct=True))
 
     else:
-        logger.warn('unable to prefetch because query was already executed')
+        logger.warning('unable to prefetch because query was already executed')
 
     return prefetched
 
@@ -1046,7 +1046,7 @@ def view_edit_risk_acceptance(request, eid, raid, edit_mode=False):
     accepted_findings = risk_acceptance.accepted_findings.order_by('numerical_severity')
     fpage = get_page_items(request, accepted_findings, 15)
 
-    unaccepted_findings = Finding.objects.filter(test__in=eng.test_set.all()) \
+    unaccepted_findings = Finding.objects.filter(test__in=eng.test_set.all(), risk_accepted=False) \
         .exclude(id__in=accepted_findings).order_by("title")
     add_fpage = get_page_items(request, unaccepted_findings, 10, 'apage')
     # on this page we need to add unaccepted findings as possible findings to add as accepted
