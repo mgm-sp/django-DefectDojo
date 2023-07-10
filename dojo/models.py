@@ -32,6 +32,7 @@ from django import forms
 from django.utils.translation import gettext as _
 from dateutil.relativedelta import relativedelta
 from tagulous.models import TagField
+from tagulous.models.managers import FakeTagRelatedManager
 import tagulous.admin
 from django.db.models import JSONField
 import hyperlink
@@ -46,6 +47,8 @@ SEVERITY_CHOICES = (('Info', 'Info'), ('Low', 'Low'), ('Medium', 'Medium'),
                     ('High', 'High'), ('Critical', 'Critical'))
 
 SEVERITIES = [s[0] for s in SEVERITY_CHOICES]
+
+EFFORT_FOR_FIXING_CHOICES = (('', ''), ('Low', 'Low'), ('Medium', 'Medium'), ('High', 'High'))
 
 # fields returned in statistics, typically all status fields
 STATS_FIELDS = ['active', 'verified', 'duplicate', 'false_p', 'out_of_scope', 'is_mitigated', 'risk_accepted', 'total']
@@ -94,6 +97,28 @@ def _get_statistics_for_queryset(qs, annotation_factory):
     values_total = values_total.aggregate(**annotation_factory())
     stats['total'] = values_total
     return stats
+
+
+def _manage_inherited_tags(obj, incoming_inherited_tags, potentially_existing_tags=[]):
+    # get copies of the current tag lists
+    current_inherited_tags = [] if isinstance(obj.inherited_tags, FakeTagRelatedManager) else [tag.name for tag in obj.inherited_tags.all()]
+    tag_list = potentially_existing_tags if isinstance(obj.tags, FakeTagRelatedManager) or len(potentially_existing_tags) > 0 else [tag.name for tag in obj.tags.all()]
+    # Clean existing tag list from the old inherited tags. This represents the tags on the object and not the product
+    cleaned_tag_list = [tag for tag in tag_list if tag not in current_inherited_tags]
+    # Add the incoming inherited tag list
+    if incoming_inherited_tags:
+        for tag in incoming_inherited_tags:
+            if tag not in cleaned_tag_list:
+                cleaned_tag_list.append(tag)
+    # Update the current list of inherited tags. iteratively do this because of tagulous object restraints
+    if isinstance(obj.inherited_tags, FakeTagRelatedManager):
+        obj.inherited_tags.set_tag_list(incoming_inherited_tags)
+        if incoming_inherited_tags:
+            obj.tags.set_tag_list(cleaned_tag_list)
+    else:
+        obj.inherited_tags.set(incoming_inherited_tags)
+        if incoming_inherited_tags:
+            obj.tags.set(cleaned_tag_list)
 
 
 @deconstructible
@@ -334,7 +359,25 @@ class System_Settings(models.Model):
     enable_mail_notifications = models.BooleanField(default=False, blank=False)
     mail_notifications_to = models.CharField(max_length=200, default='',
                                              blank=True)
-    false_positive_history = models.BooleanField(default=False, help_text=_("DefectDojo will automatically mark the finding as a false positive if the finding has been previously marked as a false positive. Not needed when using deduplication, advised to not combine these two."))
+
+    false_positive_history = models.BooleanField(
+        default=False, help_text=_(
+            "(EXPERIMENTAL) DefectDojo will automatically mark the finding as a "
+            "false positive if an equal finding (according to its dedupe algorithm) "
+            "has been previously marked as a false positive on the same product. "
+            "ATTENTION: Although the deduplication algorithm is used to determine "
+            "if a finding should be marked as a false positive, this feature will "
+            "not work if deduplication is enabled since it doesn't make sense to use both."
+        )
+    )
+
+    retroactive_false_positive_history = models.BooleanField(
+        default=False, help_text=_(
+            "(EXPERIMENTAL) FP History will also retroactively mark/unmark all "
+            "existing equal findings in the same product as a false positives. "
+            "Only works if the False Positive History feature is also enabled."
+        )
+    )
 
     url_prefix = models.CharField(max_length=300, default='', blank=True, help_text=_("URL prefix if DefectDojo is installed in it's own virtual subdirectory."))
     team_name = models.CharField(max_length=100, default='', blank=True)
@@ -363,6 +406,12 @@ class System_Settings(models.Model):
                                           verbose_name=_('Grade F'),
                                           help_text=_("Percentage score for an "
                                                     "'F' <="))
+    enable_product_tag_inheritance = models.BooleanField(
+        default=False,
+        blank=False,
+        verbose_name=_('Enable Product Tag Inheritance'),
+        help_text=_("Enables product tag inheritance globally for all products. Any tags added on a product will automatically be added to all Engagements, Tests, and Findings"))
+
     enable_benchmark = models.BooleanField(
         default=True,
         blank=False,
@@ -516,6 +565,11 @@ class System_Settings(models.Model):
         blank=False,
         verbose_name=_("Password must contain one uppercase letter"),
         help_text=_("Requires user passwords to contain at least one uppercase letter (A-Z)."))
+    non_common_password_required = models.BooleanField(
+        default=True,
+        blank=False,
+        verbose_name=_("Password must not be common"),
+        help_text=_("Requires user passwords to not be part of list of common passwords."))
 
     from dojo.middleware import System_Settings_Manager
     objects = System_Settings_Manager()
@@ -941,7 +995,11 @@ class Product(models.Model):
     regulations = models.ManyToManyField(Regulation, blank=True)
 
     tags = TagField(blank=True, force_lowercase=True, help_text=_("Add tags that help describe this product. Choose from the list or add new tags. Press Enter key to add."))
-
+    enable_product_tag_inheritance = models.BooleanField(
+        default=False,
+        blank=False,
+        verbose_name=_('Enable Product Tag Inheritance'),
+        help_text=_("Enables product tag inheritance. Any tags added on a product will automatically be added to all Engagements, Tests, and Findings"))
     enable_simple_risk_acceptance = models.BooleanField(default=False, help_text=_('Allows simple risk acceptance by checking/unchecking a checkbox.'))
     enable_full_risk_acceptance = models.BooleanField(default=True, help_text=_('Allows full risk acceptance using a risk acceptance form, expiration date, uploaded proof, etc.'))
 
@@ -1282,6 +1340,7 @@ class Engagement(models.Model):
     deduplication_on_engagement = models.BooleanField(default=False, verbose_name=_('Deduplication within this engagement only'), help_text=_("If enabled deduplication will only mark a finding in this engagement as duplicate of another finding if both findings are in this engagement. If disabled, deduplication is on the product level."))
 
     tags = TagField(blank=True, force_lowercase=True, help_text=_("Add tags that help describe this engagement. Choose from the list or add new tags. Press Enter key to add."))
+    inherited_tags = TagField(blank=True, force_lowercase=True, help_text=_("Internal use tags sepcifically for maintaining parity with product. This field will be present as a subset in the tags field"))
 
     class Meta:
         ordering = ['-target_start']
@@ -1370,6 +1429,11 @@ class Engagement(models.Model):
         helper.prepare_duplicates_for_delete(engagement=self)
         super().delete(*args, **kwargs)
         calculate_grade(self.product)
+
+    def inherit_tags(self, potentially_existing_tags):
+        # get a copy of the tags to be inherited
+        incoming_inherited_tags = [tag.name for tag in self.product.tags.all()]
+        _manage_inherited_tags(self, incoming_inherited_tags, potentially_existing_tags=potentially_existing_tags)
 
 
 class CWE(models.Model):
@@ -1460,6 +1524,7 @@ class Endpoint(models.Model):
                                       through=Endpoint_Status)
 
     tags = TagField(blank=True, force_lowercase=True, help_text=_("Add tags that help describe this endpoint. Choose from the list or add new tags. Press Enter key to add."))
+    inherited_tags = TagField(blank=True, force_lowercase=True, help_text=_("Internal use tags sepcifically for maintaining parity with product. This field will be present as a subset in the tags field"))
 
     class Meta:
         ordering = ['product', 'host', 'protocol', 'port', 'userinfo', 'path', 'query', 'fragment']
@@ -1735,6 +1800,11 @@ class Endpoint(models.Model):
         from django.urls import reverse
         return reverse('view_endpoint', args=[str(self.id)])
 
+    def inherit_tags(self, potentially_existing_tags):
+        # get a copy of the tags to be inherited
+        incoming_inherited_tags = [tag.name for tag in self.product.tags.all()]
+        _manage_inherited_tags(self, incoming_inherited_tags, potentially_existing_tags=potentially_existing_tags)
+
 
 class Development_Environment(models.Model):
     name = models.CharField(max_length=200)
@@ -1790,6 +1860,7 @@ class Test(models.Model):
     created = models.DateTimeField(auto_now_add=True, null=True)
 
     tags = TagField(blank=True, force_lowercase=True, help_text=_("Add tags that help describe this test. Choose from the list or add new tags. Press Enter key to add."))
+    inherited_tags = TagField(blank=True, force_lowercase=True, help_text=_("Internal use tags sepcifically for maintaining parity with product. This field will be present as a subset in the tags field"))
 
     version = models.CharField(max_length=100, null=True, blank=True)
 
@@ -1920,6 +1991,11 @@ class Test(models.Model):
     def statistics(self):
         """ Queries the database, no prefetching, so could be slow for lists of model instances """
         return _get_statistics_for_queryset(Finding.objects.filter(test=self), _get_annotations_for_statistics)
+
+    def inherit_tags(self, potentially_existing_tags):
+        # get a copy of the tags to be inherited
+        incoming_inherited_tags = [tag.name for tag in self.engagement.product.tags.all()]
+        _manage_inherited_tags(self, incoming_inherited_tags, potentially_existing_tags=potentially_existing_tags)
 
 
 class Test_Import(TimeStampedModel):
@@ -2281,7 +2357,20 @@ class Finding(models.Model):
                                                 verbose_name=_('Planned Remediation Date'),
                                                 help_text=_("The date the flaw is expected to be remediated."))
 
+    planned_remediation_version = models.CharField(null=True,
+                                        blank=True,
+                                        max_length=99,
+                                        verbose_name=_('Planned remediation version'),
+                                        help_text=_('The target version when the vulnerability should be fixed / remediated'))
+
+    effort_for_fixing = models.CharField(null=True,
+                                blank=True,
+                                max_length=99,
+                                verbose_name=_('Effort for fixing'),
+                                help_text=_('Effort for fixing / remediating the vulnerability (Low, Medium, High)'))
+
     tags = TagField(blank=True, force_lowercase=True, help_text=_("Add tags that help describe this finding. Choose from the list or add new tags. Press Enter key to add."))
+    inherited_tags = TagField(blank=True, force_lowercase=True, help_text=_("Internal use tags sepcifically for maintaining parity with product. This field will be present as a subset in the tags field"))
 
     SEVERITIES = {'Info': 4, 'Low': 3, 'Medium': 2,
                   'High': 1, 'Critical': 0}
@@ -2618,6 +2707,10 @@ class Finding(models.Model):
             else:
                 days = get_work_days(self.date, get_current_date())
         else:
+            from datetime import datetime
+            if isinstance(start_date, datetime):
+                start_date = start_date.date()
+
             if self.mitigated:
                 diff = self.mitigated.date() - start_date
             else:
@@ -2654,6 +2747,8 @@ class Finding(models.Model):
     def sla_deadline(self):
         days_remaining = self.sla_days_remaining()
         if days_remaining:
+            if self.mitigated:
+                return self.mitigated.date() + relativedelta(days=days_remaining)
             return get_current_date() + relativedelta(days=days_remaining)
         return None
 
@@ -2716,10 +2811,10 @@ class Finding(models.Model):
         return self.finding_group is not None
 
     def save_no_options(self, *args, **kwargs):
-        return self.save(dedupe_option=False, false_history=False, rules_option=False, product_grading_option=False,
+        return self.save(dedupe_option=False, rules_option=False, product_grading_option=False,
              issue_updater_option=False, push_to_jira=False, user=None, *args, **kwargs)
 
-    def save(self, dedupe_option=True, false_history=False, rules_option=True, product_grading_option=True,
+    def save(self, dedupe_option=True, rules_option=True, product_grading_option=True,
              issue_updater_option=True, push_to_jira=False, user=None, *args, **kwargs):
 
         from dojo.finding import helper as finding_helper
@@ -2755,7 +2850,6 @@ class Finding(models.Model):
 
         if self.pk is None:
             # We enter here during the first call from serializers.py
-            false_history = True
             from dojo.utils import apply_cwe_to_template
             self = apply_cwe_to_template(self)
 
@@ -2784,8 +2878,8 @@ class Finding(models.Model):
         self.found_by.add(self.test.test_type)
 
         # only perform post processing (in celery task) if needed. this check avoids submitting 1000s of tasks to celery that will do nothing
-        if dedupe_option or false_history or issue_updater_option or product_grading_option or push_to_jira:
-            finding_helper.post_process_finding_save(self, dedupe_option=dedupe_option, false_history=false_history, rules_option=rules_option, product_grading_option=product_grading_option,
+        if dedupe_option or issue_updater_option or product_grading_option or push_to_jira:
+            finding_helper.post_process_finding_save(self, dedupe_option=dedupe_option, rules_option=rules_option, product_grading_option=product_grading_option,
                 issue_updater_option=issue_updater_option, push_to_jira=push_to_jira, user=user, *args, **kwargs)
         else:
             logger.debug('no options selected that require finding post processing')
@@ -2919,6 +3013,11 @@ class Finding(models.Model):
         vulnerability_ids = list(dict.fromkeys(vulnerability_ids))
 
         return vulnerability_ids
+
+    def inherit_tags(self, potentially_existing_tags):
+        # get a copy of the tags to be inherited
+        incoming_inherited_tags = [tag.name for tag in self.test.engagement.product.tags.all()]
+        _manage_inherited_tags(self, incoming_inherited_tags, potentially_existing_tags=potentially_existing_tags)
 
 
 class FindingAdmin(admin.ModelAdmin):
@@ -4126,9 +4225,13 @@ enable_disable_auditlog(enable=get_system_setting('enable_auditlog'))  # on star
 
 tagulous.admin.register(Product.tags)
 tagulous.admin.register(Test.tags)
+tagulous.admin.register(Test.inherited_tags)
 tagulous.admin.register(Finding.tags)
+tagulous.admin.register(Finding.inherited_tags)
 tagulous.admin.register(Engagement.tags)
+tagulous.admin.register(Engagement.inherited_tags)
 tagulous.admin.register(Endpoint.tags)
+tagulous.admin.register(Endpoint.inherited_tags)
 tagulous.admin.register(Finding_Template.tags)
 tagulous.admin.register(App_Analysis.tags)
 tagulous.admin.register(Objects_Product.tags)

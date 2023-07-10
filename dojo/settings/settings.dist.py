@@ -35,6 +35,8 @@ env = environ.Env(
     DD_CSRF_COOKIE_SECURE=(bool, False),
     DD_CSRF_TRUSTED_ORIGINS=(list, []),
     DD_SECURE_CONTENT_TYPE_NOSNIFF=(bool, True),
+    DD_CSRF_COOKIE_SAMESITE=(str, 'Lax'),
+    DD_SESSION_COOKIE_SAMESITE=(str, 'Lax'),
     DD_TIME_ZONE=(str, 'UTC'),
     DD_LANG=(str, 'en-us'),
     DD_TEAM_NAME=(str, 'Security Team'),
@@ -264,7 +266,9 @@ env = environ.Env(
     # Set fields used by the hashcode generator for deduplication, via en env variable that contains a JSON string
     DD_HASHCODE_FIELDS_PER_SCANNER=(str, ''),
     # Set deduplication algorithms per parser, via en env variable that contains a JSON string
-    DD_DEDUPLICATION_ALGORITHM_PER_PARSER=(str, '')
+    DD_DEDUPLICATION_ALGORITHM_PER_PARSER=(str, ''),
+    # Dictates whether cloud banner is created or not
+    DD_CREATE_CLOUD_BANNER=(bool, True)
 )
 
 
@@ -605,7 +609,7 @@ LOGIN_EXEMPT_URLS = (
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+        'NAME': 'dojo.user.validators.DojoCommonPasswordValidator',
     },
     {
         'NAME': 'dojo.user.validators.MinLengthValidator'
@@ -656,9 +660,11 @@ CSRF_COOKIE_HTTPONLY = env('DD_CSRF_COOKIE_HTTPONLY')
 # the cookie will be marked as secure, which means browsers may ensure that the
 # cookie is only sent with an HTTPS connection.
 SESSION_COOKIE_SECURE = env('DD_SESSION_COOKIE_SECURE')
+SESSION_COOKIE_SAMESITE = env('DD_SESSION_COOKIE_SAMESITE')
 
 # Whether to use a secure cookie for the CSRF cookie.
 CSRF_COOKIE_SECURE = env('DD_CSRF_COOKIE_SECURE')
+CSRF_COOKIE_SAMESITE = env('DD_CSRF_COOKIE_SAMESITE')
 
 # A list of trusted origins for unsafe requests (e.g. POST).
 # Use comma-separated list of domains, they will be split to list automatically
@@ -1184,7 +1190,7 @@ HASHCODE_FIELDS_PER_SCANNER = {
     'Cloudsploit Scan': ['title', 'description'],
     'SonarQube Scan': ['cwe', 'severity', 'file_path'],
     'SonarQube API Import': ['title', 'file_path', 'line'],
-    'Dependency Check Scan': ['vulnerability_ids', 'cwe', 'file_path'],
+    'Dependency Check Scan': ['title', 'cwe', 'file_path'],
     'Dockle Scan': ['title', 'description', 'vuln_id_from_tool'],
     'Dependency Track Finding Packaging Format (FPF) Export': ['component_name', 'component_version', 'vulnerability_ids'],
     'Mobsfscan Scan': ['title', 'severity', 'cwe'],
@@ -1218,6 +1224,7 @@ HASHCODE_FIELDS_PER_SCANNER = {
     'Scout Suite Scan': ['file_path', 'vuln_id_from_tool'],  # for now we use file_path as there is no attribute for "service"
     'AWS Security Hub Scan': ['unique_id_from_tool'],
     'Meterian Scan': ['cwe', 'component_name', 'component_version', 'description', 'severity'],
+    'Govulncheck Scanner': ['unique_id_from_tool'],
     'Github Vulnerability Scan': ['title', 'severity', 'component_name', 'vulnerability_ids', 'file_path'],
     'Azure Security Center Recommendations Scan': ['unique_id_from_tool'],
     'Solar Appscreener Scan': ['title', 'file_path', 'line', 'severity'],
@@ -1245,7 +1252,9 @@ HASHCODE_FIELDS_PER_SCANNER = {
     'NeuVector (compliance)': ['title', 'vuln_id_from_tool', 'description'],
     'Wpscan': ['title', 'description', 'severity'],
     'Codechecker Report native': ['unique_id_from_tool'],
+    'Popeye Scan': ['title', 'description'],
     'Wazuh Scan': ['title'],
+    'Nuclei Scan': ['title', 'cwe', 'severity'],
 }
 
 # Override the hardcoded settings here via the env var
@@ -1266,6 +1275,7 @@ HASHCODE_ALLOWS_NULL_CWE = {
     'Anchore Enterprise Policy Check': True,
     'Anchore Grype': True,
     'AWS Prowler Scan': True,
+    'AWS Prowler V3': True,
     'Checkmarx Scan': False,
     'Checkmarx OSA': True,
     'Cloudsploit Scan': True,
@@ -1301,6 +1311,7 @@ HASHCODE_ALLOWS_NULL_CWE = {
     'Rusty Hog Scan': True,
     'Codechecker Report native': True,
     'Wazuh': True,
+    'Nuclei Scan': True,
 }
 
 # List of fields that are known to be usable in hash_code computation)
@@ -1348,6 +1359,7 @@ DEDUPLICATION_ALGORITHM_PER_PARSER = {
     'Aqua Scan': DEDUPE_ALGO_HASH_CODE,
     'AuditJS Scan': DEDUPE_ALGO_UNIQUE_ID_FROM_TOOL,
     'AWS Prowler Scan': DEDUPE_ALGO_HASH_CODE,
+    'AWS Prowler V3': DEDUPE_ALGO_UNIQUE_ID_FROM_TOOL,
     "AWS Security Finding Format (ASFF) Scan": DEDUPE_ALGO_UNIQUE_ID_FROM_TOOL,
     'Burp REST API': DEDUPE_ALGO_UNIQUE_ID_FROM_TOOL,
     'Bandit Scan': DEDUPE_ALGO_HASH_CODE,
@@ -1391,6 +1403,7 @@ DEDUPLICATION_ALGORITHM_PER_PARSER = {
     'Snyk Scan': DEDUPE_ALGO_HASH_CODE,
     'GitLab Dependency Scanning Report': DEDUPE_ALGO_HASH_CODE,
     'GitLab SAST Report': DEDUPE_ALGO_HASH_CODE,
+    'Govulncheck Scanner': DEDUPE_ALGO_UNIQUE_ID_FROM_TOOL,
     'GitLab Container Scan': DEDUPE_ALGO_HASH_CODE,
     'GitLab Secret Detection Report': DEDUPE_ALGO_HASH_CODE,
     'Checkov Scan': DEDUPE_ALGO_HASH_CODE,
@@ -1433,7 +1446,8 @@ DEDUPLICATION_ALGORITHM_PER_PARSER = {
     'NeuVector (REST)': DEDUPE_ALGO_HASH_CODE,
     'NeuVector (compliance)': DEDUPE_ALGO_HASH_CODE,
     'Wpscan': DEDUPE_ALGO_HASH_CODE,
-
+    'Popeye Scan': DEDUPE_ALGO_HASH_CODE,
+    'Nuclei Scan': DEDUPE_ALGO_HASH_CODE,
 }
 
 # Override the hardcoded settings here via the env var
@@ -1658,3 +1672,5 @@ FILE_UPLOAD_TYPES = env("DD_FILE_UPLOAD_TYPES")
 AUDITLOG_DISABLE_ON_RAW_SAVE = False
 #  You can set extra Jira headers by suppling a dictionary in header: value format (pass as env var like "headr_name=value,another_header=anohter_value")
 ADDITIONAL_HEADERS = env('DD_ADDITIONAL_HEADERS')
+# Dictates whether cloud banner is created or not
+CREATE_CLOUD_BANNER = env('DD_CREATE_CLOUD_BANNER')

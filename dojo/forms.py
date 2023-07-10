@@ -30,7 +30,7 @@ from dojo.models import Announcement, Finding, Finding_Group, Product_Type, Prod
     App_Analysis, Objects_Product, Benchmark_Product, Benchmark_Requirement, \
     Benchmark_Product_Summary, Engagement_Presets, DojoMeta, \
     Engagement_Survey, Answered_Survey, TextAnswer, ChoiceAnswer, Choice, Question, TextQuestion, \
-    ChoiceQuestion, General_Survey, Regulation, FileUpload, SEVERITY_CHOICES, Product_Type_Member, \
+    ChoiceQuestion, General_Survey, Regulation, FileUpload, SEVERITY_CHOICES, EFFORT_FOR_FIXING_CHOICES, Product_Type_Member, \
     Product_Member, Global_Role, Dojo_Group, Product_Group, Product_Type_Group, Dojo_Group_Member, \
     Product_API_Scan_Configuration
 
@@ -65,6 +65,8 @@ vulnerability_ids_field = forms.CharField(max_length=5000,
     help_text="Ids of vulnerabilities in security advisories associated with this finding. Can be Common Vulnerabilities and Exposures (CVE) or from other sources."
                 "You may enter one vulnerability id per line.",
     widget=forms.widgets.Textarea(attrs={'rows': '3', 'cols': '400'}))
+
+EFFORT_FOR_FIXING_INVALID_CHOICE = _('Select valid choice: Low,Medium,High')
 
 
 class MultipleSelectWithPop(forms.SelectMultiple):
@@ -264,7 +266,7 @@ class ProductForm(forms.ModelForm):
     class Meta:
         model = Product
         fields = ['name', 'description', 'tags', 'product_manager', 'technical_contact', 'team_manager', 'prod_type', 'sla_configuration', 'regulations',
-                'business_criticality', 'platform', 'lifecycle', 'origin', 'user_records', 'revenue', 'external_audience',
+                'business_criticality', 'platform', 'lifecycle', 'origin', 'user_records', 'revenue', 'external_audience', 'enable_product_tag_inheritance',
                 'internet_accessible', 'enable_simple_risk_acceptance', 'enable_full_risk_acceptance', 'disable_sla_breach_notifications']
 
 
@@ -868,7 +870,7 @@ class EngForm(forms.ModelForm):
 
     class Meta:
         model = Engagement
-        exclude = ('first_contacted', 'real_start', 'engagement_type',
+        exclude = ('first_contacted', 'real_start', 'engagement_type', 'inherited_tags',
                    'real_end', 'requester', 'reason', 'updated', 'report_type',
                    'product', 'threat_model', 'api_test', 'pen_test', 'check_list')
 
@@ -955,7 +957,7 @@ class AddFindingForm(forms.ModelForm):
         choices=SEVERITY_CHOICES,
         error_messages={
             'required': 'Select valid choice: In Progress, On Hold, Completed',
-            'invalid_choice': 'Select valid choice: Critical,High,Medium,Low'})
+            'invalid_choice': EFFORT_FOR_FIXING_INVALID_CHOICE})
     mitigation = forms.CharField(widget=forms.Textarea, required=False)
     impact = forms.CharField(widget=forms.Textarea, required=False)
     request = forms.CharField(widget=forms.Textarea, required=False)
@@ -968,6 +970,12 @@ class AddFindingForm(forms.ModelForm):
     references = forms.CharField(widget=forms.Textarea, required=False)
     publish_date = forms.DateField(widget=forms.TextInput(attrs={'class': 'datepicker', 'autocomplete': 'off'}), required=False)
     planned_remediation_date = forms.DateField(widget=forms.TextInput(attrs={'class': 'datepicker', 'autocomplete': 'off'}), required=False)
+    planned_remediation_version = forms.CharField(max_length=99, required=False)
+    effort_for_fixing = forms.ChoiceField(
+        required=False,
+        choices=EFFORT_FOR_FIXING_CHOICES,
+        error_messages={
+            'invalid_choice': EFFORT_FOR_FIXING_INVALID_CHOICE})
 
     # the only reliable way without hacking internal fields to get predicatble ordering is to make it explicit
     field_order = ('title', 'date', 'cwe', 'vulnerability_ids', 'severity', 'cvssv3', 'description', 'mitigation', 'impact', 'request', 'response', 'steps_to_reproduce',
@@ -1014,7 +1022,7 @@ class AddFindingForm(forms.ModelForm):
 
     class Meta:
         model = Finding
-        exclude = ('reporter', 'url', 'numerical_severity', 'under_review', 'reviewers', 'cve',
+        exclude = ('reporter', 'url', 'numerical_severity', 'under_review', 'reviewers', 'cve', 'inherited_tags',
                    'review_requested_by', 'is_mitigated', 'jira_creation', 'jira_change', 'endpoints', 'sla_start_date')
 
 
@@ -1030,7 +1038,7 @@ class AdHocFindingForm(forms.ModelForm):
         choices=SEVERITY_CHOICES,
         error_messages={
             'required': 'Select valid choice: In Progress, On Hold, Completed',
-            'invalid_choice': 'Select valid choice: Critical,High,Medium,Low'})
+            'invalid_choice': EFFORT_FOR_FIXING_INVALID_CHOICE})
     mitigation = forms.CharField(widget=forms.Textarea, required=False)
     impact = forms.CharField(widget=forms.Textarea, required=False)
     request = forms.CharField(widget=forms.Textarea, required=False)
@@ -1043,6 +1051,12 @@ class AdHocFindingForm(forms.ModelForm):
     references = forms.CharField(widget=forms.Textarea, required=False)
     publish_date = forms.DateField(widget=forms.TextInput(attrs={'class': 'datepicker', 'autocomplete': 'off'}), required=False)
     planned_remediation_date = forms.DateField(widget=forms.TextInput(attrs={'class': 'datepicker', 'autocomplete': 'off'}), required=False)
+    planned_remediation_version = forms.CharField(max_length=99, required=False)
+    effort_for_fixing = forms.ChoiceField(
+        required=False,
+        choices=EFFORT_FOR_FIXING_CHOICES,
+        error_messages={
+            'invalid_choice': EFFORT_FOR_FIXING_INVALID_CHOICE})
 
     # the only reliable way without hacking internal fields to get predicatble ordering is to make it explicit
     field_order = ('title', 'date', 'cwe', 'vulnerability_ids', 'severity', 'cvssv3', 'description', 'mitigation', 'impact', 'request', 'response', 'steps_to_reproduce',
@@ -1086,7 +1100,7 @@ class AdHocFindingForm(forms.ModelForm):
 
     class Meta:
         model = Finding
-        exclude = ('reporter', 'url', 'numerical_severity', 'under_review', 'reviewers', 'cve',
+        exclude = ('reporter', 'url', 'numerical_severity', 'under_review', 'reviewers', 'cve', 'inherited_tags',
                    'review_requested_by', 'is_mitigated', 'jira_creation', 'jira_change', 'endpoint_status', 'sla_start_date')
 
 
@@ -1143,8 +1157,8 @@ class PromoteFindingForm(forms.ModelForm):
 
     class Meta:
         model = Finding
-        exclude = ('reporter', 'url', 'numerical_severity', 'active', 'false_p', 'verified', 'endpoint_status', 'cve',
-                   'duplicate', 'out_of_scope', 'under_review', 'reviewers', 'review_requested_by', 'is_mitigated', 'jira_creation', 'jira_change', 'planned_remediation_date')
+        exclude = ('reporter', 'url', 'numerical_severity', 'active', 'false_p', 'verified', 'endpoint_status', 'cve', 'inherited_tags',
+                   'duplicate', 'out_of_scope', 'under_review', 'reviewers', 'review_requested_by', 'is_mitigated', 'jira_creation', 'jira_change', 'planned_remediation_date', 'planned_remediation_version', 'effort_for_fixing')
 
 
 class FindingForm(forms.ModelForm):
@@ -1177,8 +1191,14 @@ class FindingForm(forms.ModelForm):
 
     publish_date = forms.DateField(widget=forms.TextInput(attrs={'class': 'datepicker', 'autocomplete': 'off'}), required=False)
     planned_remediation_date = forms.DateField(widget=forms.TextInput(attrs={'class': 'datepicker', 'autocomplete': 'off'}), required=False)
+    planned_remediation_version = forms.CharField(max_length=99, required=False)
+    effort_for_fixing = forms.ChoiceField(
+        required=False,
+        choices=EFFORT_FOR_FIXING_CHOICES,
+        error_messages={
+            'invalid_choice': EFFORT_FOR_FIXING_INVALID_CHOICE})
 
-    # the onyl reliable way without hacking internal fields to get predicatble ordering is to make it explicit
+    # the only reliable way without hacking internal fields to get predicatble ordering is to make it explicit
     field_order = ('title', 'group', 'date', 'sla_start_date', 'cwe', 'vulnerability_ids', 'severity', 'cvssv3', 'cvssv3_score', 'description', 'mitigation', 'impact',
                    'request', 'response', 'steps_to_reproduce', 'severity_justification', 'endpoints', 'endpoints_to_add', 'references',
                    'active', 'mitigated', 'mitigated_by', 'verified', 'false_p', 'duplicate',
@@ -1270,7 +1290,7 @@ class FindingForm(forms.ModelForm):
 
     class Meta:
         model = Finding
-        exclude = ('reporter', 'url', 'numerical_severity', 'under_review', 'reviewers', 'cve',
+        exclude = ('reporter', 'url', 'numerical_severity', 'under_review', 'reviewers', 'cve', 'inherited_tags',
                    'review_requested_by', 'is_mitigated', 'jira_creation', 'jira_change', 'sonarqube_issue', 'endpoint_status')
 
 
@@ -1377,6 +1397,7 @@ class FindingBulkUpdateForm(forms.ModelForm):
 
     date = forms.DateField(required=False, widget=forms.DateInput(attrs={'class': 'datepicker'}))
     planned_remediation_date = forms.DateField(required=False, widget=forms.DateInput(attrs={'class': 'datepicker'}))
+    planned_remediation_version = forms.CharField(required=False, max_length=99, widget=forms.TextInput(attrs={'class': 'form-control'}))
     finding_group = forms.BooleanField(required=False)
     finding_group_create = forms.BooleanField(required=False)
     finding_group_create_name = forms.CharField(required=False)
@@ -1418,7 +1439,7 @@ class FindingBulkUpdateForm(forms.ModelForm):
 class EditEndpointForm(forms.ModelForm):
     class Meta:
         model = Endpoint
-        exclude = ['product']
+        exclude = ['product', 'inherited_tags']
 
     def __init__(self, *args, **kwargs):
         self.product = None
@@ -1658,37 +1679,56 @@ class ClearFindingReviewForm(forms.ModelForm):
 
 
 class ReviewFindingForm(forms.Form):
-
-    reviewers = forms.MultipleChoiceField(help_text="Select all users who can review Finding.")
+    reviewers = forms.MultipleChoiceField(
+        help_text=(
+            "Select all users who can review Finding. Only users with "
+            "at least write permission to this finding can be selected"),
+        required=False,
+    )
     entry = forms.CharField(
         required=True, max_length=2400,
-        help_text='Please provide a message for reviewers.',
-        widget=forms.Textarea, label='Notes:',
-        error_messages={'required': ('The reason for requesting a review is '
-                                     'required, please use the text area '
-                                     'below to provide documentation.')})
+        help_text="Please provide a message for reviewers.",
+        widget=forms.Textarea, label="Notes:",
+        error_messages={"required": ("The reason for requesting a review is "
+                                     "required, please use the text area "
+                                     "below to provide documentation.")})
+    allow_all_reviewers = forms.BooleanField(
+        required=False,
+        label="Allow All Eligible Reviewers",
+        help_text=("Checking this box will allow any user in the drop down "
+                   "above to provide a review for this finding"))
 
     def __init__(self, *args, **kwargs):
-        finding = None
-        if 'finding' in kwargs:
-            finding = kwargs.pop('finding')
-
+        finding = kwargs.pop("finding", None)
+        user = kwargs.pop("user", None)
         super(ReviewFindingForm, self).__init__(*args, **kwargs)
-        self.fields['reviewers'].choices = self._get_choices(get_authorized_users(Permissions.Finding_View).filter(is_active=True))
-
+        # Get the list of users
         if finding is not None:
-            queryset = get_authorized_users_for_product_and_product_type(None, finding.test.engagement.product, Permissions.Finding_Edit)
-            self.fields['reviewers'].choices = self._get_choices(queryset)
+            users = get_authorized_users_for_product_and_product_type(None, finding.test.engagement.product, Permissions.Finding_Edit)
+        else:
+            users = get_authorized_users(Permissions.Finding_Edit).filter(is_active=True)
+        # Remove the current user
+        if user is not None:
+            users = users.exclude(id=user.id)
+        # Save a copy of the original query to be used in the validator
+        self.reviewer_queryset = users
+        # Set the users in the form
+        self.fields["reviewers"].choices = self._get_choices(self.reviewer_queryset)
 
     @staticmethod
     def _get_choices(queryset):
-        l_choices = []
-        for item in queryset:
-            l_choices.append((item.pk, item.get_full_name()))
-        return l_choices
+        return [(item.pk, item.get_full_name()) for item in queryset]
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if cleaned_data.get("allow_all_reviewers", False):
+            cleaned_data["reviewers"] = [user.id for user in self.reviewer_queryset]
+        if len(cleaned_data.get("reviewers", [])) == 0:
+            raise ValidationError("Please select at least one user from the reviewers list")
+        return cleaned_data
 
     class Meta:
-        fields = ['reviewers', 'entry']
+        fields = ["reviewers", "entry", "allow_all_reviewers"]
 
 
 class WeeklyMetricsForm(forms.Form):
