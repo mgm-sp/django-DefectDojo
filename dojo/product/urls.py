@@ -1,6 +1,7 @@
 from django.urls import re_path
 
 from dojo.product import views
+from dojo.engagement import views as dojo_engagement_views
 
 urlpatterns = [
     #  product
@@ -12,7 +13,7 @@ urlpatterns = [
     re_path(r'^product/(?P<pid>\d+)/engagements$', views.view_engagements,
         name='view_engagements'),
     re_path(r'^product/(?P<pid>\d+)/import_scan_results$',
-        views.import_scan_results_prod, name='import_scan_results_prod'),
+        dojo_engagement_views.ImportScanResultsView.as_view(), name='import_scan_results_prod'),
     re_path(r'^product/(?P<pid>\d+)/metrics$', views.view_product_metrics,
         name='view_product_metrics'),
     re_path(r'^product/(?P<pid>\d+)/async_burndown_metrics$', views.async_burndown_metrics,
@@ -38,7 +39,9 @@ urlpatterns = [
         name='edit_notifications'),
     re_path(r'^product/(?P<pid>\d+)/edit_meta_data$', views.edit_meta_data,
         name='edit_meta_data'),
-    re_path(r'^product/(?P<pid>\d+)/ad_hoc_finding$', views.ad_hoc_finding,
+    re_path(
+        r'^product/(?P<product_id>\d+)/ad_hoc_finding$',
+        views.AdHocFindingView.as_view(),
         name='ad_hoc_finding'),
     re_path(r'^product/(?P<pid>\d+)/engagement_presets$', views.engagement_presets,
         name='engagement_presets'),

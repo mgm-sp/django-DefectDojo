@@ -6,6 +6,9 @@ from dojo import __version__
 import environ
 from netaddr import IPNetwork, IPSet
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 # See https://documentation.defectdojo.com/getting_started/configuration/ for options
 # how to tune the configuration to your needs.
@@ -1223,6 +1226,7 @@ HASHCODE_FIELDS_PER_SCANNER = {
     'GitLab Dependency Scanning Report': ['title', 'vulnerability_ids', 'file_path', 'component_name', 'component_version'],
     'SpotBugs Scan': ['cwe', 'severity', 'file_path', 'line'],
     'JFrog Xray Unified Scan': ['vulnerability_ids', 'file_path', 'component_name', 'component_version'],
+    'JFrog Xray On Demand Binary Scan': ["title", "component_name", "component_version"],
     'Scout Suite Scan': ['file_path', 'vuln_id_from_tool'],  # for now we use file_path as there is no attribute for "service"
     'AWS Security Hub Scan': ['unique_id_from_tool'],
     'Meterian Scan': ['cwe', 'component_name', 'component_version', 'description', 'severity'],
@@ -1237,7 +1241,7 @@ HASHCODE_FIELDS_PER_SCANNER = {
     'JFrog Xray Scan': ['title', 'description', 'component_name', 'component_version'],
     'CycloneDX Scan': ['vuln_id_from_tool', 'component_name', 'component_version'],
     'SSLyze Scan (JSON)': ['title', 'description'],
-    'Harbor Vulnerability Scan': ['title'],
+    'Harbor Vulnerability Scan': ['title', 'mitigation'],
     'Rusty Hog Scan': ['file_path', 'payload'],
     'StackHawk HawkScan': ['vuln_id_from_tool', 'component_name', 'component_version'],
     'Hydra Scan': ['title', 'description'],
@@ -1257,6 +1261,10 @@ HASHCODE_FIELDS_PER_SCANNER = {
     'Popeye Scan': ['title', 'description'],
     'Wazuh Scan': ['title'],
     'Nuclei Scan': ['title', 'cwe', 'severity'],
+    'KubeHunter Scan': ['title', 'description'],
+    'kube-bench Scan': ['title', 'vuln_id_from_tool', 'description'],
+    'Threagile risks report': ['title', 'cwe', "severity"],
+    'Humble Json Importer': ['title'],
 }
 
 # Override the hardcoded settings here via the env var
@@ -1264,8 +1272,12 @@ if len(env('DD_HASHCODE_FIELDS_PER_SCANNER')) > 0:
     env_hashcode_fields_per_scanner = json.loads(env('DD_HASHCODE_FIELDS_PER_SCANNER'))
     for key, value in env_hashcode_fields_per_scanner.items():
         if key in HASHCODE_FIELDS_PER_SCANNER:
-            print("Replacing {} with value {} from env var DD_HASHCODE_FIELDS_PER_SCANNER".format(key, value))
+            logger.info("Replacing {} with value {} (previously set to {}) from env var DD_HASHCODE_FIELDS_PER_SCANNER".format(key, value, HASHCODE_FIELDS_PER_SCANNER[key]))
             HASHCODE_FIELDS_PER_SCANNER[key] = value
+        if key not in HASHCODE_FIELDS_PER_SCANNER:
+            logger.info("Adding {} with value {} from env var DD_HASHCODE_FIELDS_PER_SCANNER".format(key, value))
+            HASHCODE_FIELDS_PER_SCANNER[key] = value
+
 
 # This tells if we should accept cwe=0 when computing hash_code with a configurable list of fields from HASHCODE_FIELDS_PER_SCANNER (this setting doesn't apply to legacy algorithm)
 # If False and cwe = 0, then the hash_code computation will fallback to legacy algorithm for the concerned finding
@@ -1314,12 +1326,13 @@ HASHCODE_ALLOWS_NULL_CWE = {
     'Codechecker Report native': True,
     'Wazuh': True,
     'Nuclei Scan': True,
+    'Threagile risks report': True
 }
 
 # List of fields that are known to be usable in hash_code computation)
 # 'endpoints' is a pseudo field that uses the endpoints (for dynamic scanners)
 # 'unique_id_from_tool' is often not needed here as it can be used directly in the dedupe algorithm, but it's also possible to use it for hashing
-HASHCODE_ALLOWED_FIELDS = ['title', 'cwe', 'vulnerability_ids', 'line', 'file_path', 'payload', 'component_name', 'component_version', 'description', 'endpoints', 'unique_id_from_tool', 'severity', 'vuln_id_from_tool']
+HASHCODE_ALLOWED_FIELDS = ['title', 'cwe', 'vulnerability_ids', 'line', 'file_path', 'payload', 'component_name', 'component_version', 'description', 'endpoints', 'unique_id_from_tool', 'severity', 'vuln_id_from_tool', 'mitigation']
 
 # Adding fields to the hash_code calculation regardless of the previous settings
 HASH_CODE_FIELDS_ALWAYS = ['service']
@@ -1411,6 +1424,7 @@ DEDUPLICATION_ALGORITHM_PER_PARSER = {
     'Checkov Scan': DEDUPE_ALGO_HASH_CODE,
     'SpotBugs Scan': DEDUPE_ALGO_HASH_CODE,
     'JFrog Xray Unified Scan': DEDUPE_ALGO_HASH_CODE,
+    'JFrog Xray On Demand Binary Scan': DEDUPE_ALGO_HASH_CODE,
     'Scout Suite Scan': DEDUPE_ALGO_HASH_CODE,
     'AWS Security Hub Scan': DEDUPE_ALGO_UNIQUE_ID_FROM_TOOL,
     'Meterian Scan': DEDUPE_ALGO_HASH_CODE,
@@ -1428,7 +1442,7 @@ DEDUPLICATION_ALGORITHM_PER_PARSER = {
     'Gitleaks Scan': DEDUPE_ALGO_HASH_CODE,
     'pip-audit Scan': DEDUPE_ALGO_HASH_CODE,
     'Edgescan Scan': DEDUPE_ALGO_HASH_CODE,
-    'Bugcrowd API': DEDUPE_ALGO_UNIQUE_ID_FROM_TOOL,
+    'Bugcrowd API Import': DEDUPE_ALGO_UNIQUE_ID_FROM_TOOL,
     'Rubocop Scan': DEDUPE_ALGO_HASH_CODE,
     'JFrog Xray Scan': DEDUPE_ALGO_HASH_CODE,
     'CycloneDX Scan': DEDUPE_ALGO_HASH_CODE,
@@ -1450,6 +1464,10 @@ DEDUPLICATION_ALGORITHM_PER_PARSER = {
     'Wpscan': DEDUPE_ALGO_HASH_CODE,
     'Popeye Scan': DEDUPE_ALGO_HASH_CODE,
     'Nuclei Scan': DEDUPE_ALGO_HASH_CODE,
+    'KubeHunter Scan': DEDUPE_ALGO_HASH_CODE,
+    'kube-bench Scan': DEDUPE_ALGO_HASH_CODE,
+    'Threagile risks report': DEDUPE_ALGO_UNIQUE_ID_FROM_TOOL_OR_HASH_CODE,
+    'Humble Json Importer': DEDUPE_ALGO_HASH_CODE,
 }
 
 # Override the hardcoded settings here via the env var
@@ -1457,7 +1475,10 @@ if len(env('DD_DEDUPLICATION_ALGORITHM_PER_PARSER')) > 0:
     env_dedup_algorithm_per_parser = json.loads(env('DD_DEDUPLICATION_ALGORITHM_PER_PARSER'))
     for key, value in env_dedup_algorithm_per_parser.items():
         if key in DEDUPLICATION_ALGORITHM_PER_PARSER:
-            print("Replacing {} with value {} from env var DD_DEDUPLICATION_ALGORITHM_PER_PARSER".format(key, value))
+            logger.info("Replacing {} with value {} (previously set to {}) from env var DD_DEDUPLICATION_ALGORITHM_PER_PARSER".format(key, value, DEDUPLICATION_ALGORITHM_PER_PARSER[key]))
+            DEDUPLICATION_ALGORITHM_PER_PARSER[key] = value
+        if key not in DEDUPLICATION_ALGORITHM_PER_PARSER:
+            logger.info("Adding {} with value {} from env var DD_DEDUPLICATION_ALGORITHM_PER_PARSER".format(key, value))
             DEDUPLICATION_ALGORITHM_PER_PARSER[key] = value
 
 DUPE_DELETE_MAX_PER_RUN = env('DD_DUPE_DELETE_MAX_PER_RUN')

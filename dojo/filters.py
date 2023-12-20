@@ -22,7 +22,8 @@ from django.db.models import Q
 from dojo.models import Dojo_User, Finding_Group, Product_API_Scan_Configuration, Product_Type, Finding, Product, Test_Import, Test_Type, \
     Endpoint, Development_Environment, Finding_Template, Note_Type, Risk_Acceptance, Cred_Mapping, \
     Engagement_Survey, Question, TextQuestion, ChoiceQuestion, Endpoint_Status, Engagement, \
-    ENGAGEMENT_STATUS_CHOICES, Test, App_Analysis, SEVERITY_CHOICES, EFFORT_FOR_FIXING_CHOICES, Dojo_Group, Vulnerability_Id
+    ENGAGEMENT_STATUS_CHOICES, Test, App_Analysis, SEVERITY_CHOICES, EFFORT_FOR_FIXING_CHOICES, Dojo_Group, Vulnerability_Id, \
+    Test_Import_Finding_Action, IMPORT_ACTIONS
 from dojo.utils import get_system_setting
 from django.contrib.contenttypes.models import ContentType
 import tagulous
@@ -147,12 +148,16 @@ class FindingSLAFilter(ChoiceFilter):
         return qs
 
     def satisfies_sla(self, qs, name):
-        non_sla_violations = [finding.id for finding in qs if not finding.violates_sla]
-        return Finding.objects.filter(id__in=non_sla_violations)
+        for finding in qs:
+            if finding.violates_sla:
+                qs = qs.exclude(id=finding.id)
+        return qs
 
     def violates_sla(self, qs, name):
-        sla_violations = [finding.id for finding in qs if finding.violates_sla]
-        return Finding.objects.filter(id__in=sla_violations)
+        for finding in qs:
+            if not finding.violates_sla:
+                qs = qs.exclude(id=finding.id)
+        return qs
 
     options = {
         None: (_('Any'), any),
@@ -178,12 +183,16 @@ class ProductSLAFilter(ChoiceFilter):
         return qs
 
     def satisfies_sla(self, qs, name):
-        non_sla_violations = [product.id for product in qs if not product.violates_sla]
-        return Product.objects.filter(id__in=non_sla_violations)
+        for product in qs:
+            if product.violates_sla:
+                qs = qs.exclude(id=product.id)
+        return qs
 
     def violates_sla(self, qs, name):
-        sla_violations = [product.id for product in qs if product.violates_sla]
-        return Product.objects.filter(id__in=sla_violations)
+        for product in qs:
+            if not product.violates_sla:
+                qs = qs.exclude(id=product.id)
+        return qs
 
     options = {
         None: (_('Any'), any),
@@ -723,6 +732,8 @@ class EngagementDirectFilter(DojoFilter):
     product__prod_type = ModelMultipleChoiceFilter(
         queryset=Product_Type.objects.none(),
         label="Product Type")
+    test__engagement__product__lifecycle = MultipleChoiceFilter(
+        choices=Product.LIFECYCLE_CHOICES, label='Product lifecycle')
     status = MultipleChoiceFilter(choices=ENGAGEMENT_STATUS_CHOICES,
                                               label="Status")
 
@@ -787,6 +798,8 @@ class EngagementFilter(DojoFilter):
     prod_type = ModelMultipleChoiceFilter(
         queryset=Product_Type.objects.none(),
         label="Product Type")
+    engagement__product__lifecycle = MultipleChoiceFilter(
+        choices=Product.LIFECYCLE_CHOICES, label='Product lifecycle')
     engagement__status = MultipleChoiceFilter(choices=ENGAGEMENT_STATUS_CHOICES,
                                               label="Status")
 
@@ -1185,6 +1198,8 @@ class ApiFindingFilter(DojoFilter):
     title = CharFilter(lookup_expr='icontains')
     product_name = CharFilter(lookup_expr='engagement__product__name__iexact', field_name='test', label='exact product name')
     product_name_contains = CharFilter(lookup_expr='engagement__product__name__icontains', field_name='test', label='exact product name')
+    product_lifecycle = CharFilter(method=custom_filter, lookup_expr='engagement__product__lifecycle',
+                                   field_name='test__engagement__product__lifecycle', label='Comma separated list of exact product lifecycles')
     # DateRangeFilter
     created = DateRangeFilter()
     date = DateRangeFilter()
@@ -1240,7 +1255,7 @@ class ApiFindingFilter(DojoFilter):
         help_text='Comma separated list of exact tags not present on product',
         exclude='True')
     has_tags = BooleanFilter(field_name='tags', lookup_expr='isnull', exclude=True, label='Has tags')
-    outside_of_sla = extend_schema_field(OpenApiTypes.NUMBER)(ProductSLAFilter())
+    outside_of_sla = extend_schema_field(OpenApiTypes.NUMBER)(FindingSLAFilter())
 
     o = OrderingFilter(
         # tuple-mapping retains order
@@ -1311,6 +1326,9 @@ class FindingFilter(FindingFilterWithTags):
     test__engagement__product__prod_type = ModelMultipleChoiceFilter(
         queryset=Product_Type.objects.none(),
         label="Product Type")
+
+    test__engagement__product__lifecycle = MultipleChoiceFilter(
+        choices=Product.LIFECYCLE_CHOICES, label='Product lifecycle')
 
     test__engagement__product = ModelMultipleChoiceFilter(
         queryset=Product.objects.none(),
@@ -2031,7 +2049,7 @@ class ApiTestFilter(DojoFilter):
                      'target_end', 'notes', 'percent_complete',
                      'actual_time', 'engagement', 'version',
                      'branch_tag', 'build_id', 'commit_hash',
-                     'api_scan_configuration']
+                     'api_scan_configuration', 'scan_type']
 
 
 class ApiAppAnalysisFilter(DojoFilter):
@@ -2096,6 +2114,7 @@ class ReportFindingFilter(FindingFilterWithTags):
     test__engagement__product__prod_type = ModelMultipleChoiceFilter(
         queryset=Product_Type.objects.none(),
         label="Product Type")
+    test__engagement__product__lifecycle = MultipleChoiceFilter(choices=Product.LIFECYCLE_CHOICES, label="Product Lifecycle")
     severity = MultipleChoiceFilter(choices=SEVERITY_CHOICES)
     active = ReportBooleanFilter()
     is_mitigated = ReportBooleanFilter()
@@ -2108,6 +2127,7 @@ class ReportFindingFilter(FindingFilterWithTags):
     duplicate = ReportBooleanFilter()
     duplicate_finding = ModelChoiceFilter(queryset=Finding.objects.filter(original_finding__isnull=False).distinct())
     out_of_scope = ReportBooleanFilter()
+    outside_of_sla = FindingSLAFilter(label="Outside of SLA")
 
     file_path = CharFilter(lookup_expr='icontains')
 
@@ -2235,6 +2255,20 @@ class TestImportFilter(DojoFilter):
 
     class Meta:
         model = Test_Import
+        fields = []
+
+
+class TestImportFindingActionFilter(DojoFilter):
+    action = MultipleChoiceFilter(choices=IMPORT_ACTIONS)
+    o = OrderingFilter(
+        # tuple-mapping retains order
+        fields=(
+            ('action', 'action'),
+        )
+    )
+
+    class Meta:
+        model = Test_Import_Finding_Action
         fields = []
 
 
