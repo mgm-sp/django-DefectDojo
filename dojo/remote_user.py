@@ -6,6 +6,7 @@ from rest_framework.authentication import RemoteUserAuthentication as OriginalRe
 from netaddr import IPAddress
 from django.conf import settings
 from dojo.pipeline import assign_user_to_groups, cleanup_old_groups_for_user
+from dojo.models import Dojo_Group
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,9 @@ class RemoteUserAuthentication(OriginalRemoteUserAuthentication):
 
 class RemoteUserMiddleware(OriginalRemoteUserMiddleware):
     def process_request(self, request):
+        if not settings.AUTH_REMOTEUSER_ENABLED:
+            return
+
         # process only if request is comming from the trusted proxy node
         if IPAddress(request.META['REMOTE_ADDR']) in settings.AUTH_REMOTEUSER_TRUSTED_PROXY:
             self.header = settings.AUTH_REMOTEUSER_USERNAME_HEADER
@@ -74,7 +78,7 @@ class RemoteUserBackend(OriginalRemoteUserBackend):
 
         if settings.AUTH_REMOTEUSER_GROUPS_HEADER and \
           settings.AUTH_REMOTEUSER_GROUPS_HEADER in request.META:
-            assign_user_to_groups(user, request.META[settings.AUTH_REMOTEUSER_GROUPS_HEADER].split(','), 'Remote')
+            assign_user_to_groups(user, request.META[settings.AUTH_REMOTEUSER_GROUPS_HEADER].split(','), Dojo_Group.REMOTE)
 
         if settings.AUTH_REMOTEUSER_GROUPS_CLEANUP and \
           settings.AUTH_REMOTEUSER_GROUPS_HEADER and \

@@ -14,6 +14,7 @@ from django.contrib.admin.utils import NestedObjects
 from django.contrib.postgres.aggregates import StringAgg
 from django.db import DEFAULT_DB_ALIAS, connection
 from django.db.models import Sum, Count, Q, Max, Prefetch, F, OuterRef, Subquery
+from django.db.models.expressions import Value
 from django.db.models.query import QuerySet
 from django.core.exceptions import ValidationError, PermissionDenied
 from django.http import HttpResponseRedirect, Http404, JsonResponse, HttpRequest
@@ -61,15 +62,7 @@ logger = logging.getLogger(__name__)
 
 
 def product(request):
-    # validate prod_type param
-    product_type = None
-    if 'prod_type' in request.GET:
-        p = request.GET.getlist('prod_type', [])
-        if len(p) == 1:
-            product_type = get_object_or_404(Product_Type, id=p[0])
-
     prods = get_authorized_products(Permissions.Product_View)
-
     # perform all stuff for filtering and pagination first, before annotation/prefetching
     # otherwise the paginator will perform all the annotations/prefetching already only to count the total number of records
     # see https://code.djangoproject.com/ticket/23771 and https://code.djangoproject.com/ticket/25375
@@ -119,8 +112,11 @@ def prefetch_for_product(prods):
         prefetched_prods = prefetched_prods.prefetch_related('members')
         prefetched_prods = prefetched_prods.prefetch_related('prod_type__members')
         active_endpoint_query = Endpoint.objects.filter(
-            finding__active=True,
-            finding__mitigated__isnull=True).distinct()
+            status_endpoint__mitigated=False,
+            status_endpoint__false_positive=False,
+            status_endpoint__out_of_scope=False,
+            status_endpoint__risk_accepted=False,
+        ).distinct()
         prefetched_prods = prefetched_prods.prefetch_related(
             Prefetch('endpoint_set', queryset=active_endpoint_query, to_attr='active_endpoints'))
         prefetched_prods = prefetched_prods.prefetch_related('tags')
@@ -162,7 +158,7 @@ def view_product(request, pid):
     sla = SLA_Configuration.objects.filter(id=prod.sla_configuration_id).first()
     benchAndPercent = []
     for i in range(0, len(benchmarks)):
-        desired_level, total, total_pass, total_wait, total_fail, total_viewed = asvs_calc_level(benchmarks[i])
+        desired_level, total, total_pass, total_wait, total_fail, _total_viewed = asvs_calc_level(benchmarks[i])
 
         success_percent = round((float(total_pass) / float(total)) * 100, 2)
         waiting_percent = round((float(total_wait) / float(total)) * 100, 2)
@@ -246,7 +242,7 @@ def view_product_components(request, pid):
     if connection.vendor == 'postgresql':
         component_query = Finding.objects.filter(test__engagement__product__id=pid).values("component_name").order_by(
             'component_name').annotate(
-            component_version=StringAgg('component_version', delimiter=separator, distinct=True))
+            component_version=StringAgg('component_version', delimiter=separator, distinct=True, default=Value('')))
     else:
         component_query = Finding.objects.filter(test__engagement__product__id=pid).values("component_name")
         component_query = component_query.annotate(
@@ -298,10 +294,7 @@ def identify_view(request):
 
 def finding_querys(request, prod):
     filters = dict()
-
-    findings_query = Finding.objects.filter(test__engagement__product=prod,
-                                            severity__in=('Critical', 'High', 'Medium', 'Low', 'Info'))
-
+    findings_query = Finding.objects.filter(test__engagement__product=prod)
     # prefetch only what's needed to avoid lots of repeated queries
     findings_query = findings_query.prefetch_related(
         # 'test__engagement',
@@ -315,81 +308,34 @@ def finding_querys(request, prod):
     findings_qs = queryset_check(findings)
     filters['form'] = findings.form
 
-    # dead code:
-    # if not findings_qs and not findings_query:
-    #     # logger.debug('all filtered')
-    #     findings = findings_query
-    #     findings_qs = queryset_check(findings)
-    #     messages.add_message(request,
-    #                                  messages.ERROR,
-    #                                  'All objects have been filtered away. Displaying all objects',
-    #                                  extra_tags='alert-danger')
-
     try:
         # logger.debug(findings_qs.query)
         start_date = findings_qs.earliest('date').date
-        start_date = datetime(start_date.year,
-                              start_date.month, start_date.day,
-                              tzinfo=timezone.get_current_timezone())
+        start_date = datetime(
+            start_date.year,
+            start_date.month, start_date.day,
+            tzinfo=timezone.get_current_timezone())
         end_date = findings_qs.latest('date').date
-        end_date = datetime(end_date.year,
-                            end_date.month, end_date.day,
-                            tzinfo=timezone.get_current_timezone())
+        end_date = datetime(
+            end_date.year,
+            end_date.month, end_date.day,
+            tzinfo=timezone.get_current_timezone())
     except Exception as e:
         logger.debug(e)
         start_date = timezone.now()
         end_date = timezone.now()
-    week = end_date - timedelta(days=7)  # seven days and /newnewer are considered "new"
+    week = end_date - timedelta(days=7)  # seven days and /newer are considered "new"
 
-    # risk_acceptances = Risk_Acceptance.objects.filter(engagement__in=Engagement.objects.filter(product=prod)).prefetch_related('accepted_findings')
-    # filters['accepted'] = [finding for ra in risk_acceptances for finding in ra.accepted_findings.all()]
-
-    from dojo.finding.helper import ACCEPTED_FINDINGS_QUERY
-    filters['accepted'] = findings_qs.filter(ACCEPTED_FINDINGS_QUERY).filter(date__range=[start_date, end_date])
-    filters['verified'] = findings_qs.filter(date__range=[start_date, end_date],
-                                             false_p=False,
-                                             active=True,
-                                             verified=True,
-                                             duplicate=False,
-                                             out_of_scope=False).order_by("date")
-    filters['new_verified'] = findings_qs.filter(date__range=[week, end_date],
-                                                 false_p=False,
-                                                 verified=True,
-                                                 active=True,
-                                                 duplicate=False,
-                                                 out_of_scope=False).order_by("date")
-    filters['open'] = findings_qs.filter(date__range=[start_date, end_date],
-                                         false_p=False,
-                                         duplicate=False,
-                                         out_of_scope=False,
-                                         active=True,
-                                         is_mitigated=False)
-    filters['inactive'] = findings_qs.filter(date__range=[start_date, end_date],
-                                             duplicate=False,
-                                             out_of_scope=False,
-                                             active=False,
-                                             is_mitigated=False)
-    filters['closed'] = findings_qs.filter(date__range=[start_date, end_date],
-                                           false_p=False,
-                                           duplicate=False,
-                                           out_of_scope=False,
-                                           active=False,
-                                           is_mitigated=True)
-    filters['false_positive'] = findings_qs.filter(date__range=[start_date, end_date],
-                                                   false_p=True,
-                                                   duplicate=False,
-                                                   out_of_scope=False)
-    filters['out_of_scope'] = findings_qs.filter(date__range=[start_date, end_date],
-                                                 false_p=False,
-                                                 duplicate=False,
-                                                 out_of_scope=True)
-    filters['all'] = findings_qs
-    filters['open_vulns'] = findings_qs.filter(
-        false_p=False,
-        duplicate=False,
-        out_of_scope=False,
-        active=True,
-        mitigated__isnull=True,
+    filters['accepted'] = findings_qs.filter(finding_helper.ACCEPTED_FINDINGS_QUERY).filter(date__range=[start_date, end_date]).order_by("date")
+    filters['verified'] = findings_qs.filter(finding_helper.VERIFIED_FINDINGS_QUERY).filter(date__range=[start_date, end_date]).order_by("date")
+    filters['new_verified'] = findings_qs.filter(finding_helper.VERIFIED_FINDINGS_QUERY).filter(date__range=[start_date, end_date]).order_by("date")
+    filters['open'] = findings_qs.filter(finding_helper.OPEN_FINDINGS_QUERY).filter(date__range=[start_date, end_date]).order_by("date")
+    filters['inactive'] = findings_qs.filter(finding_helper.INACTIVE_FINDINGS_QUERY).filter(date__range=[start_date, end_date]).order_by("date")
+    filters['closed'] = findings_qs.filter(finding_helper.CLOSED_FINDINGS_QUERY).filter(date__range=[start_date, end_date]).order_by("date")
+    filters['false_positive'] = findings_qs.filter(finding_helper.FALSE_POSITIVE_FINDINGS_QUERY).filter(date__range=[start_date, end_date]).order_by("date")
+    filters['out_of_scope'] = findings_qs.filter(finding_helper.OUT_OF_SCOPE_FINDINGS_QUERY).filter(date__range=[start_date, end_date]).order_by("date")
+    filters['all'] = findings_qs.order_by("date")
+    filters['open_vulns'] = findings_qs.filter(finding_helper.OPEN_FINDINGS_QUERY).filter(
         cwe__isnull=False,
     ).order_by('cwe').values(
         'cwe'
@@ -516,7 +462,6 @@ def view_product_metrics(request, pid):
 
     start_date = filters['start_date']
     end_date = filters['end_date']
-    week_date = filters['week']
 
     tests = Test.objects.filter(engagement__product=prod).prefetch_related('finding_set', 'test_type')
     tests = tests.annotate(verified_finding_count=Count('finding__id', filter=Q(finding__verified=True)))
@@ -534,93 +479,91 @@ def view_product_metrics(request, pid):
 
     add_breadcrumb(parent=prod, top_level=False, request=request)
 
+    # An ordered dict does not make sense here.
     open_close_weekly = OrderedDict()
-    new_weekly = OrderedDict()
     severity_weekly = OrderedDict()
     critical_weekly = OrderedDict()
     high_weekly = OrderedDict()
     medium_weekly = OrderedDict()
 
     open_objs_by_severity = get_zero_severity_level()
+    closed_objs_by_severity = get_zero_severity_level()
     accepted_objs_by_severity = get_zero_severity_level()
 
-    for v in filters.get('open', None):
-        iso_cal = v.date.isocalendar()
-        x = iso_to_gregorian(iso_cal[0], iso_cal[1], 1)
-        y = x.strftime("<span class='small'>%m/%d<br/>%Y</span>")
-        x = (tcalendar.timegm(x.timetuple()) * 1000)
-        if x not in critical_weekly:
-            critical_weekly[x] = {'count': 0, 'week': y}
-        if x not in high_weekly:
-            high_weekly[x] = {'count': 0, 'week': y}
-        if x not in medium_weekly:
-            medium_weekly[x] = {'count': 0, 'week': y}
+    for finding in filters.get("all", []):
+        iso_cal = finding.date.isocalendar()
+        date = iso_to_gregorian(iso_cal[0], iso_cal[1], 1)
+        html_date = date.strftime("<span class='small'>%m/%d<br/>%Y</span>")
+        unix_timestamp = (tcalendar.timegm(date.timetuple()) * 1000)
 
-        if x in open_close_weekly:
-            if v.mitigated:
-                open_close_weekly[x]['closed'] += 1
+        # Open findings
+        if finding in filters.get("open", []):
+            if unix_timestamp not in critical_weekly:
+                critical_weekly[unix_timestamp] = {'count': 0, 'week': html_date}
+            if unix_timestamp not in high_weekly:
+                high_weekly[unix_timestamp] = {'count': 0, 'week': html_date}
+            if unix_timestamp not in medium_weekly:
+                medium_weekly[unix_timestamp] = {'count': 0, 'week': html_date}
+
+            if unix_timestamp in open_close_weekly:
+                open_close_weekly[unix_timestamp]['open'] += 1
             else:
-                open_close_weekly[x]['open'] += 1
-        else:
-            if v.mitigated:
-                open_close_weekly[x] = {'closed': 1, 'open': 0, 'accepted': 0}
+                open_close_weekly[unix_timestamp] = {'closed': 0, 'open': 1, 'accepted': 0}
+                open_close_weekly[unix_timestamp]['week'] = html_date
+
+            if view == 'Finding':
+                severity = finding.severity
+            elif view == 'Endpoint':
+                severity = finding.finding.severity
+
+            if unix_timestamp in severity_weekly:
+                if severity in severity_weekly[unix_timestamp]:
+                    severity_weekly[unix_timestamp][severity] += 1
+                else:
+                    severity_weekly[unix_timestamp][severity] = 1
             else:
-                open_close_weekly[x] = {'closed': 0, 'open': 1, 'accepted': 0}
-            open_close_weekly[x]['week'] = y
+                severity_weekly[unix_timestamp] = get_zero_severity_level()
+                severity_weekly[unix_timestamp][severity] = 1
+                severity_weekly[unix_timestamp]['week'] = html_date
 
-        if view == 'Finding':
-            severity = v.severity
-        elif view == 'Endpoint':
-            severity = v.finding.severity
-
-        if x in severity_weekly:
-            if severity in severity_weekly[x]:
-                severity_weekly[x][severity] += 1
+            if severity == 'Critical':
+                if unix_timestamp in critical_weekly:
+                    critical_weekly[unix_timestamp]['count'] += 1
+                else:
+                    critical_weekly[unix_timestamp] = {'count': 1, 'week': html_date}
+            elif severity == 'High':
+                if unix_timestamp in high_weekly:
+                    high_weekly[unix_timestamp]['count'] += 1
+                else:
+                    high_weekly[unix_timestamp] = {'count': 1, 'week': html_date}
+            elif severity == 'Medium':
+                if unix_timestamp in medium_weekly:
+                    medium_weekly[unix_timestamp]['count'] += 1
+                else:
+                    medium_weekly[unix_timestamp] = {'count': 1, 'week': html_date}
+            # Optimization: count severity level on server side
+            if open_objs_by_severity.get(finding.severity) is not None:
+                open_objs_by_severity[finding.severity] += 1
+        # Close findings
+        if finding in filters.get("closed", []):
+            if unix_timestamp in open_close_weekly:
+                open_close_weekly[unix_timestamp]['closed'] += 1
             else:
-                severity_weekly[x][severity] = 1
-        else:
-            severity_weekly[x] = get_zero_severity_level()
-            severity_weekly[x][severity] = 1
-            severity_weekly[x]['week'] = y
-
-        if severity == 'Critical':
-            if x in critical_weekly:
-                critical_weekly[x]['count'] += 1
+                open_close_weekly[unix_timestamp] = {'closed': 1, 'open': 0, 'accepted': 0}
+                open_close_weekly[unix_timestamp]['week'] = html_date
+            # Optimization: count severity level on server side
+            if closed_objs_by_severity.get(finding.severity) is not None:
+                closed_objs_by_severity[finding.severity] += 1
+        # Risk Accepted findings
+        if finding in filters.get("accepted", []):
+            if unix_timestamp in open_close_weekly:
+                open_close_weekly[unix_timestamp]['accepted'] += 1
             else:
-                critical_weekly[x] = {'count': 1, 'week': y}
-        elif severity == 'High':
-            if x in high_weekly:
-                high_weekly[x]['count'] += 1
-            else:
-                high_weekly[x] = {'count': 1, 'week': y}
-        elif severity == 'Medium':
-            if x in medium_weekly:
-                medium_weekly[x]['count'] += 1
-            else:
-                medium_weekly[x] = {'count': 1, 'week': y}
-
-        # Optimization: count severity level on server side
-        if open_objs_by_severity.get(v.severity) is not None:
-            open_objs_by_severity[v.severity] += 1
-
-    for a in filters.get('accepted', None):
-        if view == 'Finding':
-            finding = a
-        elif view == 'Endpoint':
-            finding = v.finding
-        iso_cal = a.date.isocalendar()
-        x = iso_to_gregorian(iso_cal[0], iso_cal[1], 1)
-        y = x.strftime("<span class='small'>%m/%d<br/>%Y</span>")
-        x = (tcalendar.timegm(x.timetuple()) * 1000)
-
-        if x in open_close_weekly:
-            open_close_weekly[x]['accepted'] += 1
-        else:
-            open_close_weekly[x] = {'closed': 0, 'open': 0, 'accepted': 1}
-            open_close_weekly[x]['week'] = y
-
-        if accepted_objs_by_severity.get(a.severity) is not None:
-            accepted_objs_by_severity[a.severity] += 1
+                open_close_weekly[unix_timestamp] = {'closed': 0, 'open': 0, 'accepted': 1}
+                open_close_weekly[unix_timestamp]['week'] = html_date
+            # Optimization: count severity level on server side
+            if accepted_objs_by_severity.get(finding.severity) is not None:
+                accepted_objs_by_severity[finding.severity] += 1
 
     test_data = {}
     for t in tests:
@@ -647,7 +590,7 @@ def view_product_metrics(request, pid):
         'inactive_objs': filters.get('inactive', None),
         'inactive_objs_by_severity': sum_by_severity_level(filters.get('inactive')),
         'closed_objs': filters.get('closed', None),
-        'closed_objs_by_severity': sum_by_severity_level(filters.get('closed')),
+        'closed_objs_by_severity': closed_objs_by_severity,
         'false_positive_objs': filters.get('false_positive', None),
         'false_positive_objs_by_severity': sum_by_severity_level(filters.get('false_positive')),
         'out_of_scope_objs': filters.get('out_of_scope', None),
@@ -887,11 +830,15 @@ def edit_product(request, pid):
         form = ProductForm(request.POST, instance=product)
         jira_project = jira_helper.get_jira_project(product)
         if form.is_valid():
+            initial_sla_config = Product.objects.get(pk=form.instance.id).sla_configuration
             form.save()
-            tags = request.POST.getlist('tags')
+            msg = 'Product updated successfully.'
+            # check if the SLA config was changed, append additional context to message
+            if initial_sla_config != form.instance.sla_configuration:
+                msg += ' All SLA expiration dates for findings within this product will be recalculated asynchronously for the newly assigned SLA configuration.'
             messages.add_message(request,
                                  messages.SUCCESS,
-                                 _('Product updated successfully.'),
+                                 _(msg),
                                  extra_tags='alert-success')
 
             success, jform = jira_helper.process_jira_project_form(request, instance=jira_project, product=product)
@@ -1002,16 +949,13 @@ def delete_product(request, pid):
 
 @user_is_authorized(Product, Permissions.Engagement_Add, 'pid')
 def new_eng_for_app(request, pid, cicd=False):
-    jira_project = None
     jira_project_form = None
     jira_epic_form = None
 
     product = Product.objects.get(id=pid)
-    jira_error = False
 
     if request.method == 'POST':
         form = EngForm(request.POST, cicd=cicd, product=product, user=request.user)
-        jira_project = jira_helper.get_jira_project(product)
         logger.debug('new_eng_for_app')
 
         if form.is_valid():
@@ -1070,7 +1014,6 @@ def new_eng_for_app(request, pid, cicd=False):
                        product=product, user=request.user)
 
         if get_system_setting('enable_jira'):
-            jira_project = jira_helper.get_jira_project(product)
             logger.debug('showing jira-project-form')
             jira_project_form = JIRAProjectForm(target='engagement', product=product)
             logger.debug('showing jira-epic-form')
@@ -1223,7 +1166,7 @@ class AdHocFindingView(View):
         return get_object_or_404(Product, id=product_id)
 
     def get_test_type(self):
-        test_type, nil = Test_Type.objects.get_or_create(name=_("Pen Test"))
+        test_type, _nil = Test_Type.objects.get_or_create(name=_("Pen Test"))
         return test_type
 
     def get_engagement(self, product: Product):
@@ -1316,9 +1259,9 @@ class AdHocFindingView(View):
         return None
 
     def validate_status_change(self, request: HttpRequest, context: dict):
-        if ((context["form"]['active'].value() is False or
-             context["form"]['false_p'].value()) and
-             context["form"]['duplicate'].value() is False):
+        if ((context["form"]['active'].value() is False
+             or context["form"]['false_p'].value())
+             and context["form"]['duplicate'].value() is False):
 
             closing_disabled = Note_Type.objects.filter(is_mandatory=True, is_active=True).count()
             if closing_disabled != 0:
@@ -1376,7 +1319,6 @@ class AdHocFindingView(View):
             # if the jira issue key was changed, update database
             new_jira_issue_key = context["jform"].cleaned_data.get('jira_issue')
             if finding.has_jira_issue:
-                jira_issue = finding.jira_issue
                 # everything in DD around JIRA integration is based on the internal id of the issue in JIRA
                 # instead of on the public jira issue key.
                 # I have no idea why, but it means we have to retrieve the issue from JIRA to get the internal JIRA id.

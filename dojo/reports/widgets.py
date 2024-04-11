@@ -28,7 +28,7 @@ class CustomReportJsonForm(forms.Form):
     def clean_json(self):
         jdata = self.cleaned_data['json']
         try:
-            json_data = json.loads(jdata)
+            json.loads(jdata)
         except:
             raise forms.ValidationError("Invalid data in json")
         return jdata
@@ -144,9 +144,9 @@ class PageBreak(Widget):
     def get_option_form(self):
         return mark_safe(
             "<div data-multiple='true'  class='panel panel-available-widget'><div class='panel-heading' title='Click "
-            "and drag to move' data-toggle='tooltip'><div class='clearfix'><h5 style='width: 90%' class='pull-left'>" +
-            self.get_html() + "</h5><span class='fa-solid fa-up-down-left-right pull-right icon'></span></div></div>"
-                              "<form id='page-break'><input type='hidden' name='page-break'/></form></div>")
+            "and drag to move' data-toggle='tooltip'><div class='clearfix'><h5 style='width: 90%' class='pull-left'>"
+            + self.get_html() + "</h5><span class='fa-solid fa-up-down-left-right pull-right icon'></span></div></div>"
+            "<form id='page-break'><input type='hidden' name='page-break'/></form></div>")
 
 
 class ReportOptions(Widget):
@@ -405,8 +405,6 @@ def report_widget_factory(json_data=None, request=None, user=None, finding_notes
                     d.appendlist(item['name'], item['value'])
                 else:
                     d[item['name']] = item['value']
-            from dojo.endpoint.views import get_endpoint_ids
-            ids = get_endpoint_ids(endpoints)
 
             endpoints = Endpoint.objects.filter(id__in=endpoints)
             endpoints = EndpointFilter(d, queryset=endpoints, user=request.user)

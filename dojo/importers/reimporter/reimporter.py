@@ -48,7 +48,6 @@ class DojoDefaultReImporter(object):
         items = parsed_findings
         original_items = list(test.finding_set.all())
         new_items = []
-        mitigated_count = 0
         finding_count = 0
         finding_added_count = 0
         reactivated_count = 0
@@ -89,6 +88,11 @@ class DojoDefaultReImporter(object):
                 item.component_version if hasattr(item, "component_version") else None
             )
 
+            # Some parsers provide "mitigated" field but do not set timezone (because it is probably not available in the report)
+            # Finding.mitigated is DateTimeField and it requires timezone
+            if item.mitigated and not item.mitigated.tzinfo:
+                item.mitigated = item.mitigated.replace(tzinfo=now.tzinfo)
+
             if not hasattr(item, "test"):
                 item.test = test
 
@@ -111,7 +115,6 @@ class DojoDefaultReImporter(object):
             findings = reimporter_utils.match_new_finding_to_existing_finding(
                 item, test, deduplication_algorithm
             )
-
             deduplicationLogger.debug(
                 "found %i findings matching with current new finding", len(findings)
             )
@@ -400,7 +403,7 @@ class DojoDefaultReImporter(object):
                         title = unsaved_file.get("title", "<No title>")
                         (
                             file_upload,
-                            file_upload_created,
+                            _file_upload_created,
                         ) = FileUpload.objects.get_or_create(
                             title=title,
                         )
@@ -571,6 +574,8 @@ class DojoDefaultReImporter(object):
         service=None,
         do_not_reactivate=False,
         create_finding_groups_for_all_findings=True,
+        apply_tags_to_findings=False,
+        apply_tags_to_endpoints=False,
     ):
 
         logger.debug(f"REIMPORT_SCAN: parameters: {locals()}")
@@ -741,6 +746,17 @@ class DojoDefaultReImporter(object):
                 reactivated_findings,
                 untouched_findings,
             )
+
+            if apply_tags_to_findings and tags:
+                for finding in test_import.findings_affected.all():
+                    for tag in tags:
+                        finding.tags.add(tag)
+
+            if apply_tags_to_endpoints and tags:
+                for finding in test_import.findings_affected.all():
+                    for endpoint in finding.endpoints.all():
+                        for tag in tags:
+                            endpoint.tags.add(tag)
 
         logger.debug("REIMPORT_SCAN: Generating notifications")
 

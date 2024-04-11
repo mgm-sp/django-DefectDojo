@@ -2,6 +2,16 @@ name: Fetch OpenAPI Specifications
 
 on:
   workflow_call:
+    inputs:
+      version:
+        type: string
+        description: |
+          The version to be associated with the GitHub release that's created or updated.
+          This will override any version calculated by the release-drafter.
+        required: true
+
+env:
+  release_version: ${{ github.event.inputs.version || github.event.inputs.release_number }}
 
 jobs:
   oas_fetch:
@@ -13,22 +23,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      # load docker images from build jobs
-      - name: Load images from artifacts
-        uses: actions/download-artifact@v3
+        with:
+          ref: release/${{ env.release_version }}
 
       - name: Load docker images
         run: |-
-             docker load -i nginx/nginx-alpine_img
-             docker load -i django/django-alpine_img
+             docker pull defectdojo/defectdojo-django:${{ env.release_version }}-alpine
+             docker pull defectdojo/defectdojo-nginx:${{ env.release_version }}-alpine
              docker images
 
       - name: Start Dojo
-        run: docker-compose --profile postgres-redis --env-file ./docker/environments/postgres-redis.env up --no-deps -d postgres nginx uwsgi
+        run: docker compose --profile postgres-redis --env-file ./docker/environments/postgres-redis.env up --no-deps -d postgres nginx uwsgi
         env:
-          DJANGO_VERSION: alpine
-          NGINX_VERSION: alpine
+          DJANGO_VERSION: ${{ env.release_version }}-alpine
+          NGINX_VERSION: ${{ env.release_version }}-alpine
 
       - name: Download OpenAPI Specifications
         run: |-
@@ -36,11 +44,11 @@ jobs:
 
       - name: Logs
         if: always()
-        run: docker-compose --profile postgres-redis --env-file ./docker/environments/postgres-redis.env logs --tail="2500"
+        run: docker compose --profile postgres-redis --env-file ./docker/environments/postgres-redis.env logs --tail="2500"
 
       - name: Shutdown
         if: always()
-        run: docker-compose --profile postgres-redis --env-file ./docker/environments/postgres-redis.env down
+        run: docker compose --profile postgres-redis --env-file ./docker/environments/postgres-redis.env down
 
       - name: Upload oas.${{ matrix.file-type }} as artifact
         uses:  actions/upload-artifact@v3

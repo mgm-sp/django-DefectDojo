@@ -117,7 +117,7 @@ def login_view(request):
         settings.KEYCLOAK_OAUTH2_ENABLED,
         settings.GITHUB_ENTERPRISE_OAUTH2_ENABLED,
         settings.SAML2_ENABLED
-    ]) == 1 and not ('force_login_form' in request.GET):
+    ]) == 1 and 'force_login_form' not in request.GET:
         if settings.GOOGLE_OAUTH_ENABLED:
             social_auth = 'google-oauth2'
         elif settings.OKTA_OAUTH_ENABLED:
@@ -181,12 +181,12 @@ def delete_alerts(request):
     alerts = Alerts.objects.filter(user_id=request.user)
 
     if request.method == 'POST':
-        removed_alerts = request.POST.getlist('alert_select')
         alerts.filter().delete()
-        messages.add_message(request,
-                                        messages.SUCCESS,
-                                        _('Alerts removed.'),
-                                        extra_tags='alert-success')
+        messages.add_message(
+            request,
+            messages.SUCCESS,
+            _('Alerts removed.'),
+            extra_tags='alert-success')
         return HttpResponseRedirect('alerts')
 
     return render(request,
@@ -270,9 +270,7 @@ def change_password(request):
     if request.method == 'POST':
         form = ChangePasswordForm(request.POST, user=user)
         if form.is_valid():
-            current_password = form.cleaned_data['current_password']
             new_password = form.cleaned_data['new_password']
-            confirm_password = form.cleaned_data['confirm_password']
 
             user.set_password(new_password)
             Dojo_User.disable_force_password_reset(user)

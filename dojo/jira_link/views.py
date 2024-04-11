@@ -1,7 +1,7 @@
 # Standard library imports
 import json
 import logging
-
+import datetime
 # Third party imports
 from django.contrib import messages
 from django.contrib.admin.utils import NestedObjects
@@ -20,7 +20,8 @@ from dojo.utils import add_breadcrumb, add_error_message_to_response, get_system
 from dojo.notifications.helper import create_notification
 from django.views.decorators.http import require_POST
 import dojo.jira_link.helper as jira_helper
-from dojo.authorization.authorization_decorators import user_is_configuration_authorized
+from django.views import View
+from dojo.authorization.authorization import user_has_configuration_permission
 
 logger = logging.getLogger(__name__)
 
@@ -105,97 +106,13 @@ def webhook(request, secret=None):
                 if findings:
                     for finding in findings:
                         jira_helper.process_resolution_from_jira(finding, resolution_id, resolution_name, assignee_name, jira_now, jissue)
+                # Check for any comment that could have come along with the resolution
+                if (error_response := check_for_and_create_comment(parsed)) is not None:
+                    return error_response
 
             if parsed.get('webhookEvent') == 'comment_created':
-                """
-                    example incoming requests from JIRA Server 8.14.0
-                    {
-                    "timestamp":1610269967824,
-                    "webhookEvent":"comment_created",
-                    "comment":{
-                        "self":"https://jira.host.com/rest/api/2/issue/115254/comment/466578",
-                        "id":"466578",
-                        "author":{
-                            "self":"https://jira.host.com/rest/api/2/user?username=defect.dojo",
-                            "name":"defect.dojo",
-                            "key":"defect.dojo", # seems to be only present on JIRA Server, not on Cloud
-                            "avatarUrls":{
-                                "48x48":"https://www.gravatar.com/avatar/9637bfb970eff6176357df615f548f1c?d=mm&s=48",
-                                "24x24":"https://www.gravatar.com/avatar/9637bfb970eff6176357df615f548f1c?d=mm&s=24",
-                                "16x16":"https://www.gravatar.com/avatar9637bfb970eff6176357df615f548f1c?d=mm&s=16",
-                                "32x32":"https://www.gravatar.com/avatar/9637bfb970eff6176357df615f548f1c?d=mm&s=32"
-                            },
-                            "displayName":"Defect Dojo",
-                            "active":true,
-                            "timeZone":"Europe/Amsterdam"
-                        },
-                        "body":"(Valentijn Scholten):test4",
-                        "updateAuthor":{
-                            "self":"https://jira.host.com/rest/api/2/user?username=defect.dojo",
-                            "name":"defect.dojo",
-                            "key":"defect.dojo",
-                            "avatarUrls":{
-                                "48x48":"https://www.gravatar.com/avatar/9637bfb970eff6176357df615f548f1c?d=mm&s=48",
-                                "24x24""https://www.gravatar.com/avatar/9637bfb970eff6176357df615f548f1c?d=mm&s=24",
-                                "16x16":"https://www.gravatar.com/avatar/9637bfb970eff6176357df615f548f1c?d=mm&s=16",
-                                "32x32":"https://www.gravatar.com/avatar/9637bfb970eff6176357df615f548f1c?d=mm&s=32"
-                            },
-                            "displayName":"Defect Dojo",
-                            "active":true,
-                            "timeZone":"Europe/Amsterdam"
-                        },
-                        "created":"2021-01-10T10:12:47.824+0100",
-                        "updated":"2021-01-10T10:12:47.824+0100"
-                    }
-                    }
-                """
-
-                comment_text = parsed['comment']['body']
-                commentor = ''
-                if 'name' in parsed['comment']['updateAuthor']:
-                    commentor = parsed['comment']['updateAuthor']['name']
-                elif 'emailAddress' in parsed['comment']['updateAuthor']:
-                    commentor = parsed['comment']['updateAuthor']['emailAddress']
-                else:
-                    logger.debug('Could not find the author of this jira comment!')
-                commentor_display_name = parsed['comment']['updateAuthor']['displayName']
-                # example: body['comment']['self'] = "http://www.testjira.com/jira_under_a_path/rest/api/2/issue/666/comment/456843"
-                jid = parsed['comment']['self'].split('/')[-3]
-                jissue = get_object_or_404(JIRA_Issue, jira_id=jid)
-                logging.info(f"Received issue comment for {jissue.jira_key}")
-                logger.debug('jissue: %s', vars(jissue))
-
-                jira_usernames = JIRA_Instance.objects.values_list('username', flat=True)
-                for jira_userid in jira_usernames:
-                    # logger.debug('incoming username: %s jira config username: %s', commentor.lower(), jira_userid.lower())
-                    if jira_userid.lower() == commentor.lower():
-                        logger.debug('skipping incoming JIRA comment as the user id of the comment in JIRA (%s) matches the JIRA username in DefectDojo (%s)', commentor.lower(), jira_userid.lower())
-                        return HttpResponse('')
-
-                findings = None
-                if jissue.finding:
-                    findings = [jissue.finding]
-                    create_notification(event='other', title=f'JIRA incoming comment - {jissue.finding}', finding=jissue.finding, url=reverse("view_finding", args=(jissue.finding.id,)), icon='check')
-
-                elif jissue.finding_group:
-                    findings = [jissue.finding_group.findings.all()]
-                    create_notification(event='other', title=f'JIRA incoming comment - {jissue.finding}', finding=jissue.finding, url=reverse("view_finding_group", args=(jissue.finding_group.id,)), icon='check')
-
-                elif jissue.engagement:
-                    return HttpResponse('Comment for engagement ignored')
-                else:
-                    raise Http404(f'No finding or engagement found for JIRA issue {jissue.jira_key}')
-
-                for finding in findings:
-                    # logger.debug('finding: %s', vars(jissue.finding))
-                    new_note = Notes()
-                    new_note.entry = f'({commentor_display_name} ({commentor})): {comment_text}'
-                    new_note.author, created = User.objects.get_or_create(username='JIRA')
-                    new_note.save()
-                    finding.notes.add(new_note)
-                    finding.jira_issue.jira_change = timezone.now()
-                    finding.jira_issue.save()
-                    finding.save()
+                if (error_response := check_for_and_create_comment(parsed)) is not None:
+                    return error_response
 
             if parsed.get('webhookEvent') not in ['comment_created', 'jira:issue_updated']:
                 logger.info(f"Unrecognized JIRA webhook event received: {parsed.get('webhookEvent')}")
@@ -203,6 +120,7 @@ def webhook(request, secret=None):
         except Exception as e:
             if isinstance(e, Http404):
                 logger.warning('404 error processing JIRA webhook')
+                logger.warning(str(e))
             else:
                 logger.exception(e)
 
@@ -218,6 +136,112 @@ def webhook(request, secret=None):
     return HttpResponse('')
 
 
+def check_for_and_create_comment(parsed_json):
+    """
+        example incoming requests from JIRA Server 8.14.0
+        {
+        "timestamp":1610269967824,
+        "webhookEvent":"comment_created",
+        "comment":{
+            "self":"https://jira.host.com/rest/api/2/issue/115254/comment/466578",
+            "id":"466578",
+            "author":{
+                "self":"https://jira.host.com/rest/api/2/user?username=defect.dojo",
+                "name":"defect.dojo",
+                "key":"defect.dojo", # seems to be only present on JIRA Server, not on Cloud
+                "avatarUrls":{
+                    "48x48":"https://www.gravatar.com/avatar/9637bfb970eff6176357df615f548f1c?d=mm&s=48",
+                    "24x24":"https://www.gravatar.com/avatar/9637bfb970eff6176357df615f548f1c?d=mm&s=24",
+                    "16x16":"https://www.gravatar.com/avatar9637bfb970eff6176357df615f548f1c?d=mm&s=16",
+                    "32x32":"https://www.gravatar.com/avatar/9637bfb970eff6176357df615f548f1c?d=mm&s=32"
+                },
+                "displayName":"Defect Dojo",
+                "active":true,
+                "timeZone":"Europe/Amsterdam"
+            },
+            "body":"(Valentijn Scholten):test4",
+            "updateAuthor":{
+                "self":"https://jira.host.com/rest/api/2/user?username=defect.dojo",
+                "name":"defect.dojo",
+                "key":"defect.dojo",
+                "avatarUrls":{
+                    "48x48":"https://www.gravatar.com/avatar/9637bfb970eff6176357df615f548f1c?d=mm&s=48",
+                    "24x24""https://www.gravatar.com/avatar/9637bfb970eff6176357df615f548f1c?d=mm&s=24",
+                    "16x16":"https://www.gravatar.com/avatar/9637bfb970eff6176357df615f548f1c?d=mm&s=16",
+                    "32x32":"https://www.gravatar.com/avatar/9637bfb970eff6176357df615f548f1c?d=mm&s=32"
+                },
+                "displayName":"Defect Dojo",
+                "active":true,
+                "timeZone":"Europe/Amsterdam"
+            },
+            "created":"2021-01-10T10:12:47.824+0100",
+            "updated":"2021-01-10T10:12:47.824+0100"
+        }
+        }
+    """
+    comment = parsed_json.get("comment", None)
+    if comment is None:
+        return
+
+    comment_text = comment.get('body')
+    commenter = ''
+    if 'name' in comment.get('updateAuthor'):
+        commenter = comment.get('updateAuthor', {}).get('name')
+    elif 'emailAddress' in comment.get('updateAuthor'):
+        commenter = comment.get('updateAuthor', {}).get('emailAddress')
+    else:
+        logger.debug('Could not find the author of this jira comment!')
+    commenter_display_name = comment.get('updateAuthor', {}).get('displayName')
+    # example: body['comment']['self'] = "http://www.testjira.com/jira_under_a_path/rest/api/2/issue/666/comment/456843"
+    jid = comment.get('self', '').split('/')[-3]
+    jissue = get_object_or_404(JIRA_Issue, jira_id=jid)
+    logging.info(f"Received issue comment for {jissue.jira_key}")
+    logger.debug('jissue: %s', vars(jissue))
+
+    jira_usernames = JIRA_Instance.objects.values_list('username', flat=True)
+    for jira_user_id in jira_usernames:
+        # logger.debug('incoming username: %s jira config username: %s', commenter.lower(), jira_user_id.lower())
+        if jira_user_id.lower() == commenter.lower():
+            logger.debug('skipping incoming JIRA comment as the user id of the comment in JIRA (%s) matches the JIRA username in DefectDojo (%s)', commenter.lower(), jira_user_id.lower())
+            return HttpResponse('')
+
+    findings = None
+    if jissue.finding:
+        findings = [jissue.finding]
+        create_notification(event='other', title=f'JIRA incoming comment - {jissue.finding}', finding=jissue.finding, url=reverse("view_finding", args=(jissue.finding.id,)), icon='check')
+
+    elif jissue.finding_group:
+        findings = [jissue.finding_group.findings.all()]
+        create_notification(event='other', title=f'JIRA incoming comment - {jissue.finding}', finding=jissue.finding, url=reverse("view_finding_group", args=(jissue.finding_group.id,)), icon='check')
+
+    elif jissue.engagement:
+        return HttpResponse('Comment for engagement ignored')
+    else:
+        raise Http404(f'No finding or engagement found for JIRA issue {jissue.jira_key}')
+
+    # Set the fields for the notes
+    author, _ = User.objects.get_or_create(username='JIRA')
+    entry = f'({commenter_display_name} ({commenter})): {comment_text}'
+    # Iterate (potentially) over each of the findings the note should be added to
+    for finding in findings:
+        # Determine if this exact note was created within the last 30 seconds to avoid duplicate notes
+        existing_notes = finding.notes.filter(
+            entry=entry,
+            author=author,
+            date__gte=(timezone.now() - datetime.timedelta(seconds=30)),
+        )
+        # Check the query for any hits
+        if existing_notes.count() == 0:
+            new_note = Notes()
+            new_note.entry = entry
+            new_note.author = author
+            new_note.save()
+            finding.notes.add(new_note)
+            finding.jira_issue.jira_change = timezone.now()
+            finding.jira_issue.save()
+            finding.save()
+
+
 def get_custom_field(jira, label):
     url = jira._options["server"].strip('/') + '/rest/api/2/field'
     response = jira._session.get(url).json()
@@ -229,10 +253,30 @@ def get_custom_field(jira, label):
     return field
 
 
-@user_is_configuration_authorized('dojo.add_jira_instance')
-def express_new_jira(request):
-    if request.method == 'POST':
-        jform = ExpressJIRAForm(request.POST, instance=JIRA_Instance())
+class ExpressJiraView(View):
+    def get_template(self):
+        return 'dojo/express_new_jira.html'
+
+    def get_fallback_template(self):
+        return 'dojo/new_jira.html'
+
+    def get_form_class(self):
+        return ExpressJIRAForm
+
+    def get_fallback_form_class(self):
+        return JIRAForm
+
+    def get(self, request):
+        if not user_has_configuration_permission(request.user, 'dojo.add_jira_instance'):
+            raise PermissionDenied
+        jform = self.get_form_class()()
+        add_breadcrumb(title="New Jira Configuration (Express)", top_level=False, request=request)
+        return render(request, self.get_template(), {'jform': jform})
+
+    def post(self, request):
+        if not user_has_configuration_permission(request.user, 'dojo.add_jira_instance'):
+            raise PermissionDenied
+        jform = self.get_form_class()(request.POST, instance=JIRA_Instance())
         if jform.is_valid():
             jira_server = jform.cleaned_data.get('url').rstrip('/')
             jira_username = jform.cleaned_data.get('username')
@@ -247,7 +291,7 @@ def express_new_jira(request):
                     messages.ERROR,
                     'Unable to authenticate. Please check credentials.',
                     extra_tags='alert-danger')
-                return render(request, 'dojo/express_new_jira.html', {'jform': jform})
+                return render(request, self.get_template(), {'jform': jform})
             # authentication successful
             # Get the open and close keys
             try:
@@ -268,7 +312,8 @@ def express_new_jira(request):
                     messages.ERROR,
                     'Unable to find Open/Close ID\'s (invalid issue key specified?). They will need to be found manually',
                     extra_tags='alert-danger')
-                return render(request, 'dojo/new_jira.html', {'jform': jform})
+                fallback_form = self.get_fallback_form_class()(request.POST, instance=JIRA_Instance())
+                return render(request, self.get_fallback_template(), {'jform': fallback_form})
             # Get the epic id name
             try:
                 epic_name = get_custom_field(jira, 'Epic Name')
@@ -279,7 +324,8 @@ def express_new_jira(request):
                     messages.ERROR,
                     'Unable to find Epic Name. It will need to be found manually',
                     extra_tags='alert-danger')
-                return render(request, 'dojo/new_jira.html', {'jform': jform})
+                fallback_form = self.get_fallback_form_class()(request.POST, instance=JIRA_Instance())
+                return render(request, self.get_fallback_template(), {'jform': fallback_form})
 
             jira_instance = JIRA_Instance(
                 username=jira_username,
@@ -310,23 +356,35 @@ def express_new_jira(request):
                 url=request.build_absolute_uri(reverse('jira')))
 
             return HttpResponseRedirect(reverse('jira', ))
-    else:
-        jform = ExpressJIRAForm()
-        add_breadcrumb(title="New Jira Configuration (Express)", top_level=False, request=request)
-    return render(request, 'dojo/express_new_jira.html', {'jform': jform})
+        return render(request, self.get_template(), {'jform': jform})
 
 
-@user_is_configuration_authorized('dojo.add_jira_instance')
-def new_jira(request):
-    if request.method == 'POST':
-        jform = JIRAForm(request.POST, instance=JIRA_Instance())
+class NewJiraView(View):
+    def get_template(self):
+        return 'dojo/new_jira.html'
+
+    def get_form_class(self):
+        return JIRAForm
+
+    def get(self, request):
+        if not user_has_configuration_permission(request.user, 'dojo.add_jira_instance'):
+            raise PermissionDenied
+        jform = self.get_form_class()()
+        add_breadcrumb(title="New Jira Configuration", top_level=False, request=request)
+        return render(request, self.get_template(), {'jform': jform})
+
+    def post(self, request):
+        if not user_has_configuration_permission(request.user, 'dojo.add_jira_instance'):
+            raise PermissionDenied
+        jform = self.get_form_class()(request.POST, instance=JIRA_Instance())
         if jform.is_valid():
             jira_server = jform.cleaned_data.get('url').rstrip('/')
             jira_username = jform.cleaned_data.get('username')
             jira_password = jform.cleaned_data.get('password')
 
             logger.debug('calling get_jira_connection_raw')
-            jira = jira_helper.get_jira_connection_raw(jira_server, jira_username, jira_password)
+            # Make sure the connection can be completed
+            jira_helper.get_jira_connection_raw(jira_server, jira_username, jira_password)
 
             new_j = jform.save(commit=False)
             new_j.url = jira_server
@@ -345,18 +403,30 @@ def new_jira(request):
             return HttpResponseRedirect(reverse('jira', ))
         else:
             logger.error('jform.errors: %s', jform.errors)
-    else:
-        jform = JIRAForm()
-        add_breadcrumb(title="New Jira Configuration", top_level=False, request=request)
-    return render(request, 'dojo/new_jira.html', {'jform': jform})
+        return render(request, self.get_template(), {'jform': jform})
 
 
-@user_is_configuration_authorized('dojo.change_jira_instance')
-def edit_jira(request, jid):
-    jira = JIRA_Instance.objects.get(pk=jid)
-    jira_password_from_db = jira.password
-    if request.method == 'POST':
-        jform = JIRAForm(request.POST, instance=jira)
+class EditJiraView(View):
+    def get_template(self):
+        return 'dojo/edit_jira.html'
+
+    def get_form_class(self):
+        return JIRAForm
+
+    def get(self, request, jid=None):
+        if not user_has_configuration_permission(request.user, 'dojo.change_jira_instance'):
+            raise PermissionDenied
+        jira = JIRA_Instance.objects.get(pk=jid)
+        jform = self.get_form_class()(instance=jira)
+        add_breadcrumb(title="Edit JIRA Configuration", top_level=False, request=request)
+        return render(request, self.get_template(), {'jform': jform})
+
+    def post(self, request, jid=None):
+        if not user_has_configuration_permission(request.user, 'dojo.change_jira_instance'):
+            raise PermissionDenied
+        jira = JIRA_Instance.objects.get(pk=jid)
+        jira_password_from_db = jira.password
+        jform = self.get_form_class()(request.POST, instance=jira)
         if jform.is_valid():
             jira_server = jform.cleaned_data.get('url').rstrip('/')
             jira_username = jform.cleaned_data.get('username')
@@ -367,7 +437,7 @@ def edit_jira(request, jid):
                 # on edit the password is optional
                 jira_password = jira_password_from_db
 
-            jira = jira_helper.get_jira_connection_raw(jira_server, jira_username, jira_password)
+            jira_helper.get_jira_connection_raw(jira_server, jira_username, jira_password)
 
             new_j = jform.save(commit=False)
             new_j.url = jira_server
@@ -387,30 +457,52 @@ def edit_jira(request, jid):
 
             return HttpResponseRedirect(reverse('jira', ))
 
-    else:
-        jform = JIRAForm(instance=jira)
-        add_breadcrumb(title="Edit JIRA Configuration", top_level=False, request=request)
-
-    return render(request, 'dojo/edit_jira.html', {'jform': jform})
+        return render(request, self.get_template(), {'jform': jform})
 
 
-@user_is_configuration_authorized('dojo.view_jira_instance')
-def jira(request):
-    jira_instances = JIRA_Instance.objects.all()
-    add_breadcrumb(title="JIRA List", top_level=not len(request.GET), request=request)
-    return render(request, 'dojo/jira.html', {'jira_instances': jira_instances})
+class ListJiraView(View):
+    def get_template(self):
+        return 'dojo/jira.html'
+
+    def get(self, request):
+        if not user_has_configuration_permission(request.user, 'dojo.view_jira_instance'):
+            raise PermissionDenied
+        jira_instances = JIRA_Instance.objects.all()
+        context = {'jira_instances': jira_instances}
+        add_breadcrumb(title="JIRA List", top_level=not len(request.GET), request=request)
+        return render(request, self.get_template(), context)
 
 
-@user_is_configuration_authorized('dojo.delete_jira_instance')
-def delete_jira(request, tid):
-    jira_instance = get_object_or_404(JIRA_Instance, pk=tid)
-    # eng = test.engagement
-    # TODO Make Form
-    form = DeleteJIRAInstanceForm(instance=jira_instance)
+class DeleteJiraView(View):
+    def get_template(self):
+        return 'dojo/delete_jira.html'
 
-    if request.method == 'POST':
+    def get_form_class(self):
+        return DeleteJIRAInstanceForm
+
+    def get(self, request, tid=None):
+        if not user_has_configuration_permission(request.user, 'dojo.delete_jira_instance'):
+            raise PermissionDenied
+        jira_instance = get_object_or_404(JIRA_Instance, pk=tid)
+        form = self.get_form_class()(instance=jira_instance)
+        collector = NestedObjects(using=DEFAULT_DB_ALIAS)
+        collector.collect([jira_instance])
+        rels = collector.nested()
+
+        add_breadcrumb(title="Delete", top_level=False, request=request)
+        return render(request, self.get_template(), {
+            'inst': jira_instance,
+            'form': form,
+            'rels': rels,
+            'deletable_objects': rels,
+        })
+
+    def post(self, request, tid=None):
+        if not user_has_configuration_permission(request.user, 'dojo.delete_jira_instance'):
+            raise PermissionDenied
+        jira_instance = get_object_or_404(JIRA_Instance, pk=tid)
         if 'id' in request.POST and str(jira_instance.id) == request.POST['id']:
-            form = DeleteJIRAInstanceForm(request.POST, instance=jira_instance)
+            form = self.get_form_class()(request.POST, instance=jira_instance)
             if form.is_valid():
                 try:
                     jira_instance.delete()
@@ -427,15 +519,14 @@ def delete_jira(request, tid):
                     return HttpResponseRedirect(reverse('jira'))
                 except Exception as e:
                     add_error_message_to_response('Unable to delete JIRA Instance, probably because it is used by JIRA Issues: %s' % str(e))
+        collector = NestedObjects(using=DEFAULT_DB_ALIAS)
+        collector.collect([jira_instance])
+        rels = collector.nested()
 
-    collector = NestedObjects(using=DEFAULT_DB_ALIAS)
-    collector.collect([jira_instance])
-    rels = collector.nested()
-
-    add_breadcrumb(title="Delete", top_level=False, request=request)
-    return render(request, 'dojo/delete_jira.html', {
-        'inst': jira_instance,
-        'form': form,
-        'rels': rels,
-        'deletable_objects': rels,
-    })
+        add_breadcrumb(title="Delete", top_level=False, request=request)
+        return render(request, self.get_template(), {
+            'inst': jira_instance,
+            'form': form,
+            'rels': rels,
+            'deletable_objects': rels,
+        })

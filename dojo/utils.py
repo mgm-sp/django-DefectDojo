@@ -15,9 +15,8 @@ from math import pi, sqrt
 import vobject
 from dateutil.relativedelta import relativedelta, MO, SU
 from django.conf import settings
-from django.core.mail import send_mail
 from django.core.paginator import Paginator
-from django.urls import get_resolver, reverse
+from django.urls import get_resolver, reverse, get_script_prefix
 from django.db.models import Q, Sum, Case, When, IntegerField, Value, Count
 from django.utils import timezone
 from django.utils.translation import gettext as _
@@ -32,7 +31,6 @@ from dojo.models import Finding, Engagement, Finding_Group, Finding_Template, Pr
 from asteval import Interpreter
 from dojo.notifications.helper import create_notification
 import logging
-import itertools
 from django.contrib import messages
 from django.http import HttpResponseRedirect
 import crum
@@ -74,8 +72,8 @@ def do_false_positive_history(finding, *args, **kwargs):
 
     existing_fp_findings = existing_findings.filter(false_p=True)
     deduplicationLogger.debug(
-        "FALSE_POSITIVE_HISTORY: Found %i existing findings in the same product " +
-        "that were previously marked as false positive",
+        "FALSE_POSITIVE_HISTORY: Found %i existing findings in the same product "
+        + "that were previously marked as false positive",
         len(existing_fp_findings)
     )
 
@@ -170,8 +168,8 @@ def match_finding_to_existing_findings(finding, product=None, engagement=None, t
         query = Finding.objects.filter(
             Q(**custom_filter),
             (
-                (Q(hash_code__isnull=False) & Q(hash_code=finding.hash_code)) |
-                (Q(unique_id_from_tool__isnull=False) & Q(unique_id_from_tool=finding.unique_id_from_tool))
+                (Q(hash_code__isnull=False) & Q(hash_code=finding.hash_code))
+                | (Q(unique_id_from_tool__isnull=False) & Q(unique_id_from_tool=finding.unique_id_from_tool))
             )
         ).exclude(id=finding.id).order_by('id')
         deduplicationLogger.debug(query.query)
@@ -279,8 +277,8 @@ def do_dedupe_finding(new_finding, *args, **kwargs):
         logger.warning("system settings not found")
         enabled = False
     if enabled:
-        deduplicationLogger.debug('dedupe for: ' + str(new_finding.id) +
-                    ":" + str(new_finding.title))
+        deduplicationLogger.debug('dedupe for: ' + str(new_finding.id)
+                    + ":" + str(new_finding.title))
         deduplicationAlgorithm = new_finding.test.deduplication_algorithm
         deduplicationLogger.debug('deduplication algorithm: ' + deduplicationAlgorithm)
         if deduplicationAlgorithm == settings.DEDUPE_ALGO_UNIQUE_ID_FROM_TOOL:
@@ -320,10 +318,10 @@ def deduplicate_legacy(new_finding):
             title=new_finding.title).exclude(id=new_finding.id).exclude(duplicate=True).values('id')
 
     total_findings = Finding.objects.filter(Q(id__in=eng_findings_cwe) | Q(id__in=eng_findings_title)).prefetch_related('endpoints', 'test', 'test__engagement', 'found_by', 'original_finding', 'test__test_type')
-    deduplicationLogger.debug("Found " +
-        str(len(eng_findings_cwe)) + " findings with same cwe, " +
-        str(len(eng_findings_title)) + " findings with same title: " +
-        str(len(total_findings)) + " findings with either same title or same cwe")
+    deduplicationLogger.debug("Found "
+        + str(len(eng_findings_cwe)) + " findings with same cwe, "
+        + str(len(eng_findings_title)) + " findings with same title: "
+        + str(len(total_findings)) + " findings with either same title or same cwe")
 
     # total_findings = total_findings.order_by('date')
     for find in total_findings.order_by('id'):
@@ -366,8 +364,8 @@ def deduplicate_legacy(new_finding):
             flag_hash = True
 
         deduplicationLogger.debug(
-            'deduplication flags for new finding (' + ('dynamic' if new_finding.dynamic_finding else 'static') + ') ' + str(new_finding.id) + ' and existing finding ' + str(find.id) +
-            ' flag_endpoints: ' + str(flag_endpoints) + ' flag_line_path:' + str(flag_line_path) + ' flag_hash:' + str(flag_hash))
+            'deduplication flags for new finding (' + ('dynamic' if new_finding.dynamic_finding else 'static') + ') ' + str(new_finding.id) + ' and existing finding ' + str(find.id)
+            + ' flag_endpoints: ' + str(flag_endpoints) + ' flag_line_path:' + str(flag_line_path) + ' flag_hash:' + str(flag_hash))
 
         # ---------------------------------------------------------
         # 3) Findings are duplicate if (cond1 is true) and they have the same:
@@ -402,8 +400,8 @@ def deduplicate_unique_id_from_tool(new_finding):
                     unique_id_from_tool=None).exclude(
                         duplicate=True).order_by('id')
 
-    deduplicationLogger.debug("Found " +
-        str(len(existing_findings)) + " findings with same unique_id_from_tool")
+    deduplicationLogger.debug("Found "
+        + str(len(existing_findings)) + " findings with same unique_id_from_tool")
     for find in existing_findings:
         if is_deduplication_on_engagement_mismatch(new_finding, find):
             deduplicationLogger.debug(
@@ -433,8 +431,8 @@ def deduplicate_hash_code(new_finding):
                     hash_code=None).exclude(
                         duplicate=True).order_by('id')
 
-    deduplicationLogger.debug("Found " +
-        str(len(existing_findings)) + " findings with same hash_code")
+    deduplicationLogger.debug("Found "
+        + str(len(existing_findings)) + " findings with same hash_code")
     for find in existing_findings:
         if is_deduplication_on_engagement_mismatch(new_finding, find):
             deduplicationLogger.debug(
@@ -452,22 +450,22 @@ def deduplicate_hash_code(new_finding):
 def deduplicate_uid_or_hash_code(new_finding):
     if new_finding.test.engagement.deduplication_on_engagement:
         existing_findings = Finding.objects.filter(
-            (Q(hash_code__isnull=False) & Q(hash_code=new_finding.hash_code)) |
+            (Q(hash_code__isnull=False) & Q(hash_code=new_finding.hash_code))
             # unique_id_from_tool can only apply to the same test_type because it is parser dependent
-            (Q(unique_id_from_tool__isnull=False) & Q(unique_id_from_tool=new_finding.unique_id_from_tool) & Q(test__test_type=new_finding.test.test_type)),
+            | (Q(unique_id_from_tool__isnull=False) & Q(unique_id_from_tool=new_finding.unique_id_from_tool) & Q(test__test_type=new_finding.test.test_type)),
             test__engagement=new_finding.test.engagement).exclude(
                 id=new_finding.id).exclude(
                         duplicate=True).order_by('id')
     else:
         # same without "test__engagement=new_finding.test.engagement" condition
         existing_findings = Finding.objects.filter(
-            (Q(hash_code__isnull=False) & Q(hash_code=new_finding.hash_code)) |
-            (Q(unique_id_from_tool__isnull=False) & Q(unique_id_from_tool=new_finding.unique_id_from_tool) & Q(test__test_type=new_finding.test.test_type)),
+            (Q(hash_code__isnull=False) & Q(hash_code=new_finding.hash_code))
+            | (Q(unique_id_from_tool__isnull=False) & Q(unique_id_from_tool=new_finding.unique_id_from_tool) & Q(test__test_type=new_finding.test.test_type)),
             test__engagement__product=new_finding.test.engagement.product).exclude(
                 id=new_finding.id).exclude(
                         duplicate=True).order_by('id')
-    deduplicationLogger.debug("Found " +
-        str(len(existing_findings)) + " findings with either the same unique_id_from_tool or hash_code")
+    deduplicationLogger.debug("Found "
+        + str(len(existing_findings)) + " findings with either the same unique_id_from_tool or hash_code")
     for find in existing_findings:
         if is_deduplication_on_engagement_mismatch(new_finding, find):
             deduplicationLogger.debug(
@@ -483,14 +481,19 @@ def deduplicate_uid_or_hash_code(new_finding):
 
 
 def set_duplicate(new_finding, existing_finding):
+    deduplicationLogger.debug(f"new_finding.status(): {new_finding.id} {new_finding.status()}")
+    deduplicationLogger.debug(f"existing_finding.status(): {existing_finding.id} {existing_finding.status()}")
     if existing_finding.duplicate:
-        logger.debug('existing finding: %s:%s:duplicate=%s;duplicate_finding=%s', existing_finding.id, existing_finding.title, existing_finding.duplicate, existing_finding.duplicate_finding.id if existing_finding.duplicate_finding else 'None')
+        deduplicationLogger.debug('existing finding: %s:%s:duplicate=%s;duplicate_finding=%s', existing_finding.id, existing_finding.title, existing_finding.duplicate, existing_finding.duplicate_finding.id if existing_finding.duplicate_finding else 'None')
         raise Exception("Existing finding is a duplicate")
     if existing_finding.id == new_finding.id:
         raise Exception("Can not add duplicate to itself")
-    deduplicationLogger.debug('Setting new finding ' + str(new_finding.id) + ' as a duplicate of existing finding ' + str(existing_finding.id))
     if is_duplicate_reopen(new_finding, existing_finding):
-        set_duplicate_reopen(new_finding, existing_finding)
+        raise Exception("Found a regression. Ignore this so that a new duplicate chain can be made")
+    if new_finding.duplicate and finding_mitigated(existing_finding):
+        raise Exception("Skip this finding as we do not want to attach a new duplicate to a mitigated finding")
+
+    deduplicationLogger.debug('Setting new finding ' + str(new_finding.id) + ' as a duplicate of existing finding ' + str(existing_finding.id))
     new_finding.duplicate = True
     new_finding.active = False
     new_finding.verified = False
@@ -509,11 +512,16 @@ def set_duplicate(new_finding, existing_finding):
     super(Finding, existing_finding).save()
 
 
-def is_duplicate_reopen(new_finding, existing_finding):
-    if (existing_finding.is_mitigated or existing_finding.mitigated) and not existing_finding.out_of_scope and not existing_finding.false_p and new_finding.active and not new_finding.is_mitigated:
-        return True
-    else:
-        return False
+def is_duplicate_reopen(new_finding, existing_finding) -> bool:
+    return finding_mitigated(existing_finding) and finding_not_human_set_status(existing_finding) and not finding_mitigated(new_finding)
+
+
+def finding_mitigated(finding: Finding) -> bool:
+    return finding.active is False and (finding.is_mitigated is True or finding.mitigated is not None)
+
+
+def finding_not_human_set_status(finding: Finding) -> bool:
+    return finding.out_of_scope is False and finding.false_p is False
 
 
 def set_duplicate_reopen(new_finding, existing_finding):
@@ -629,8 +637,8 @@ def findings_this_period(findings, period_type, stuff, o_stuff, a_stuff):
         total = sum(o_count.values()) - o_count['closed']
         if period_type == 0:
             counts.append(
-                start_of_period.strftime("%b %d") + " - " +
-                end_of_period.strftime("%b %d"))
+                start_of_period.strftime("%b %d") + " - "
+                + end_of_period.strftime("%b %d"))
         else:
             counts.append(start_of_period.strftime("%b %Y"))
         counts.append(o_count['zero'])
@@ -647,8 +655,8 @@ def findings_this_period(findings, period_type, stuff, o_stuff, a_stuff):
         a_total = sum(a_count.values())
         if period_type == 0:
             a_counts.append(
-                start_of_period.strftime("%b %d") + " - " +
-                end_of_period.strftime("%b %d"))
+                start_of_period.strftime("%b %d") + " - "
+                + end_of_period.strftime("%b %d"))
         else:
             a_counts.append(start_of_period.strftime("%b %Y"))
         a_counts.append(a_count['zero'])
@@ -665,7 +673,6 @@ def add_breadcrumb(parent=None,
                    url=None,
                    request=None,
                    clear=False):
-    title_done = False
     if clear:
         request.session['dojo_breadcrumbs'] = None
         return
@@ -682,7 +689,6 @@ def add_breadcrumb(parent=None,
         if parent is not None and getattr(parent, "get_breadcrumbs", None):
             crumbs += parent.get_breadcrumbs()
         else:
-            title_done = True
             crumbs += [{
                 'title': title,
                 'url': request.get_full_path() if url is None else url
@@ -697,7 +703,6 @@ def add_breadcrumb(parent=None,
                     'url': request.get_full_path() if url is None else url
                 }]
         else:
-            title_done = True
             obj_crumbs = [{
                 'title': title,
                 'url': request.get_full_path() if url is None else url
@@ -903,7 +908,7 @@ def get_period_counts_legacy(findings,
         else:
             risks_a = None
 
-        crit_count, high_count, med_count, low_count, closed_count = [
+        crit_count, high_count, med_count, low_count, _ = [
             0, 0, 0, 0, 0
         ]
         for finding in findings:
@@ -923,7 +928,7 @@ def get_period_counts_legacy(findings,
             [(tcalendar.timegm(new_date.timetuple()) * 1000), new_date,
              crit_count, high_count, med_count, low_count, total,
              closed_in_range_count])
-        crit_count, high_count, med_count, low_count, closed_count = [
+        crit_count, high_count, med_count, low_count, _ = [
             0, 0, 0, 0, 0
         ]
         if risks_a is not None:
@@ -1000,13 +1005,13 @@ def get_period_counts(findings,
         else:
             risks_a = None
 
-        f_crit_count, f_high_count, f_med_count, f_low_count, f_closed_count = [
+        f_crit_count, f_high_count, f_med_count, f_low_count, _ = [
             0, 0, 0, 0, 0
         ]
-        ra_crit_count, ra_high_count, ra_med_count, ra_low_count, ra_closed_count = [
+        ra_crit_count, ra_high_count, ra_med_count, ra_low_count, _ = [
             0, 0, 0, 0, 0
         ]
-        active_crit_count, active_high_count, active_med_count, active_low_count, active_closed_count = [
+        active_crit_count, active_high_count, active_med_count, active_low_count, _ = [
             0, 0, 0, 0, 0
         ]
 
@@ -1085,7 +1090,7 @@ def get_period_counts(findings,
     }
 
 
-def opened_in_period(start_date, end_date, pt):
+def opened_in_period(start_date, end_date, **kwargs):
     start_date = datetime(
         start_date.year,
         start_date.month,
@@ -1098,7 +1103,7 @@ def opened_in_period(start_date, end_date, pt):
         tzinfo=timezone.get_current_timezone())
     opened_in_period = Finding.objects.filter(
         date__range=[start_date, end_date],
-        test__engagement__product__prod_type=pt,
+        **kwargs,
         verified=True,
         false_p=False,
         duplicate=False,
@@ -1110,7 +1115,7 @@ def opened_in_period(start_date, end_date, pt):
                 Count('numerical_severity')).order_by('numerical_severity')
     total_opened_in_period = Finding.objects.filter(
         date__range=[start_date, end_date],
-        test__engagement__product__prod_type=pt,
+        **kwargs,
         verified=True,
         false_p=False,
         duplicate=False,
@@ -1142,7 +1147,7 @@ def opened_in_period(start_date, end_date, pt):
         'closed':
         Finding.objects.filter(
             mitigated__date__range=[start_date, end_date],
-            test__engagement__product__prod_type=pt,
+            **kwargs,
             severity__in=('Critical', 'High', 'Medium', 'Low')).aggregate(
                 total=Sum(
                     Case(
@@ -1158,7 +1163,7 @@ def opened_in_period(start_date, end_date, pt):
             duplicate=False,
             out_of_scope=False,
             mitigated__isnull=True,
-            test__engagement__product__prod_type=pt,
+            **kwargs,
             severity__in=('Critical', 'High', 'Medium', 'Low')).count()
     }
 
@@ -1277,7 +1282,7 @@ def get_page_items_and_count(request, items, page_size, prefix='', do_count=True
 
 
 def handle_uploaded_threat(f, eng):
-    name, extension = os.path.splitext(f.name)
+    _name, extension = os.path.splitext(f.name)
     # Check if threat folder exist.
     if not os.path.isdir(settings.MEDIA_ROOT + '/threat/'):
         # Create the folder
@@ -1292,7 +1297,7 @@ def handle_uploaded_threat(f, eng):
 
 
 def handle_uploaded_selenium(f, cred):
-    name, extension = os.path.splitext(f.name)
+    _name, extension = os.path.splitext(f.name)
     with open(settings.MEDIA_ROOT + '/selenium/%s%s' % (cred.id, extension),
               'wb+') as destination:
         for chunk in f.chunks():
@@ -1351,29 +1356,6 @@ def reopen_external_issue(find, note, external_issue_provider, **kwargs):
         reopen_external_issue_github(find, note, prod, eng)
 
 
-def send_review_email(request, user, finding, users, new_note):
-    # TODO remove apparent dead code
-
-    recipients = [u.email for u in users]
-    msg = "\nGreetings, \n\n"
-    msg += "{0} has requested that you please review ".format(str(user))
-    msg += "the following finding for accuracy:"
-    msg += "\n\n" + finding.title
-    msg += "\n\nIt can be reviewed at " + request.build_absolute_uri(
-        reverse("view_finding", args=(finding.id, )))
-    msg += "\n\n{0} provided the following details:".format(str(user))
-    msg += "\n\n" + new_note.entry
-    msg += "\n\nThanks\n"
-
-    send_mail(
-        'DefectDojo Finding Review Request',
-        msg,
-        user.email,
-        recipients,
-        fail_silently=False)
-    pass
-
-
 def process_notifications(request, note, parent_url, parent_title):
     regex = re.compile(r'(?:\A|\s)@(\w+)\b')
 
@@ -1397,22 +1379,6 @@ def process_notifications(request, note, parent_url, parent_title):
         url=parent_url,
         icon='commenting',
         recipients=users_to_notify)
-
-
-def send_atmention_email(user, users, parent_url, parent_title, new_note):
-    recipients = [u.email for u in users]
-    msg = "\nGreetings, \n\n"
-    msg += "User {0} mentioned you in a note on {1}".format(
-        str(user), parent_title)
-    msg += "\n\n" + new_note.entry
-    msg += "\n\nIt can be reviewed at " + parent_url
-    msg += "\n\nThanks\n"
-    send_mail(
-        'DefectDojo - {0} @mentioned you in a note'.format(str(user)),
-        msg,
-        user.email,
-        recipients,
-        fail_silently=False)
 
 
 def encrypt(key, iv, plaintext):
@@ -1490,8 +1456,6 @@ def prepare_for_view(encrypted_value):
         encrypted_values = encrypted_value.split(":")
 
         if len(encrypted_values) > 1:
-            type = encrypted_values[0]
-
             iv = binascii.a2b_hex(encrypted_values[1])
             value = encrypted_values[2]
 
@@ -1552,7 +1516,7 @@ def calculate_grade(product, *args, **kwargs):
         grade_product = "grade_product(%s, %s, %s, %s)" % (
             critical, high, medium, low)
         product.prod_numeric_grade = aeval(grade_product)
-        product.save()
+        super(Product, product).save()
 
 
 def get_celery_worker_status():
@@ -1611,7 +1575,12 @@ class Product_Tab():
                                                           active=True,
                                                           mitigated__isnull=True).count()
         active_endpoints = Endpoint.objects.filter(
-            product=self.product, finding__active=True, finding__mitigated__isnull=True)
+            product=self.product,
+            status_endpoint__mitigated=False,
+            status_endpoint__false_positive=False,
+            status_endpoint__out_of_scope=False,
+            status_endpoint__risk_accepted=False,
+        )
         self.endpoints_count = active_endpoints.distinct().count()
         self.endpoint_hosts_count = active_endpoints.values('host').distinct().count()
         self.benchmark_type = Benchmark_Type.objects.filter(
@@ -1747,7 +1716,7 @@ def user_post_save(sender, instance, created, **kwargs):
             notifications.template = False
             notifications.user = instance
             logger.info('creating default set (from template) of notifications for: ' + str(instance))
-        except Exception as err:
+        except Exception:
             notifications = Notifications(user=instance)
             logger.info('creating default set of notifications for: ' + str(instance))
 
@@ -1777,12 +1746,6 @@ def engagement_post_Save(sender, instance, created, **kwargs):
         title = 'Engagement created for ' + str(engagement.product) + ': ' + str(engagement.name)
         create_notification(event='engagement_added', title=title, engagement=engagement, product=engagement.product,
                             url=reverse('view_engagement', args=(engagement.id,)))
-
-
-def merge_sets_safe(set1, set2):
-    return set(itertools.chain(set1 or [], set2 or []))
-    # This concat looks  better, but requires Python 3.6+
-    # return {*set1, *set2}
 
 
 def is_safe_url(url):
@@ -1860,19 +1823,89 @@ def sla_compute_and_notify(*args, **kwargs):
     """
     import dojo.jira_link.helper as jira_helper
 
-    def _notify(finding, title):
-        if not finding.test.engagement.product.disable_sla_breach_notifications:
-            create_notification(
-                event='sla_breach',
-                title=title,
-                finding=finding,
-                url=reverse('view_finding', args=(finding.id,)),
-                sla_age=sla_age
-            )
+    class NotificationEntry:
+        def __init__(self, finding=None, jira_issue=None, do_jira_sla_comment=False):
+            self.finding = finding
+            self.jira_issue = jira_issue
+            self.do_jira_sla_comment = do_jira_sla_comment
 
-            if do_jira_sla_comment:
-                logger.info("Creating JIRA comment to notify of SLA breach information.")
-                jira_helper.add_simple_jira_comment(jira_instance, jira_issue, title)
+    def _add_notification(finding, kind):
+        # jira_issue, do_jira_sla_comment are taken from the context
+        # kind can be one of: breached, prebreach, breaching
+        if finding.test.engagement.product.disable_sla_breach_notifications:
+            return
+
+        notification = NotificationEntry(finding=finding,
+                                         jira_issue=jira_issue,
+                                         do_jira_sla_comment=do_jira_sla_comment)
+
+        pt = finding.test.engagement.product.prod_type.name
+        p = finding.test.engagement.product.name
+
+        if pt in combined_notifications:
+            if p in combined_notifications[pt]:
+                if kind in combined_notifications[pt][p]:
+                    combined_notifications[pt][p][kind].append(notification)
+                else:
+                    combined_notifications[pt][p][kind] = [notification]
+            else:
+                combined_notifications[pt][p] = {kind: [notification]}
+        else:
+            combined_notifications[pt] = {p: {kind: [notification]}}
+
+    def _notification_title_for_finding(finding, kind, sla_age):
+        title = "Finding %s - " % (finding.id)
+        if kind == 'breached':
+            abs_sla_age = abs(sla_age)
+            period = "day"
+            if abs_sla_age > 1:
+                period = "days"
+            title += "SLA breached by %d %s! Overdue notice" % (abs_sla_age, period)
+        elif kind == 'prebreach':
+            title += "SLA pre-breach warning - %d day(s) left" % (sla_age)
+        elif kind == 'breaching':
+            title += "SLA is breaching today"
+
+        return title
+
+    def _create_notifications():
+        for pt in combined_notifications:
+            for p in combined_notifications[pt]:
+                for kind in combined_notifications[pt][p]:
+                    # creating notifications on per-finding basis
+
+                    # we need this list for combined notification feature as we
+                    # can not supply references to local objects as
+                    # create_notification() arguments
+                    findings_list = []
+
+                    for n in combined_notifications[pt][p][kind]:
+                        title = _notification_title_for_finding(n.finding, kind, n.finding.sla_days_remaining())
+
+                        create_notification(
+                            event='sla_breach',
+                            title=title,
+                            finding=n.finding,
+                            url=reverse('view_finding', args=(n.finding.id,)),
+                        )
+
+                        if n.do_jira_sla_comment:
+                            logger.info("Creating JIRA comment to notify of SLA breach information.")
+                            jira_helper.add_simple_jira_comment(jira_instance, n.jira_issue, title)
+
+                        findings_list.append(n.finding)
+
+                    # producing a "combined" SLA breach notification
+                    title_combined = "SLA alert (%s): product type '%s', product '%s'" % (kind, pt, p)
+                    product = combined_notifications[pt][p][kind][0].finding.test.engagement.product
+                    create_notification(
+                        event='sla_breach_combined',
+                        title=title_combined,
+                        product=product,
+                        findings=findings_list,
+                        breach_kind=kind,
+                        base_url=get_script_prefix(),
+                    )
 
     # exit early on flags
     system_settings = System_Settings.objects.get()
@@ -1882,6 +1915,8 @@ def sla_compute_and_notify(*args, **kwargs):
 
     jira_issue = None
     jira_instance = None
+    # notifications list per product per product type
+    combined_notifications = {}
     try:
         if system_settings.enable_finding_sla:
             logger.info("About to process findings for SLA notifications.")
@@ -1970,23 +2005,21 @@ def sla_compute_and_notify(*args, **kwargs):
                     logger.info("Finding {} has breached by {} days.".format(finding.id, abs(sla_age)))
                     abs_sla_age = abs(sla_age)
                     if not system_settings.enable_notify_sla_exponential_backoff or abs_sla_age == 1 or (abs_sla_age & (abs_sla_age - 1) == 0):
-                        period = "day"
-                        if abs_sla_age > 1:
-                            period = "days"
-                        _notify(finding, 'Finding {} - SLA breached by {} {}! Overdue notice'.format(finding.id, abs_sla_age, period))
+                        _add_notification(finding, 'breached')
                     else:
                         logger.info("Skipping notification as exponential backoff is enabled and the SLA is not a power of two")
                 # The finding is within the pre-breach period
                 elif (sla_age > 0) and (sla_age <= settings.SLA_NOTIFY_PRE_BREACH):
                     pre_breach_count += 1
                     logger.info("Security SLA pre-breach warning for finding ID {}. Days remaining: {}".format(finding.id, sla_age))
-                    _notify(finding, 'Finding {} - SLA pre-breach warning - {} day(s) left'.format(finding.id, sla_age))
+                    _add_notification(finding, 'prebreach')
                 # The finding breaches the SLA today
                 elif (sla_age == 0):
                     at_breach_count += 1
                     logger.info("Security SLA breach warning. Finding ID {} breaching today ({})".format(finding.id, sla_age))
-                    _notify(finding, "Finding {} - SLA is breaching today".format(finding.id))
+                    _add_notification(finding, 'breaching')
 
+            _create_notifications()
             logger.info("SLA run results: Pre-breach: {}, at-breach: {}, post-breach: {}, post-breach-no-notify: {}, with-jira: {}, TOTAL: {}".format(
                 pre_breach_count,
                 at_breach_count,
@@ -2364,7 +2397,7 @@ def get_password_requirements_string():
     if bool(get_system_setting('number_character_required')):
         s += ', one number (0-9)'
     if bool(get_system_setting('special_character_required')):
-        s += ', one special chacter (()[]{}|\`~!@#$%^&*_-+=;:\'\",<>./?)'  # noqa W605
+        s += ', one special character (()[]{}|\\`~!@#$%^&*_-+=;:\'\",<>./?)'
 
     if s.count(', ') == 1:
         password_requirements_string = s.rsplit(', ', 1)[0] + ' and ' + s.rsplit(', ', 1)[1]

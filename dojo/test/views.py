@@ -256,7 +256,7 @@ def edit_test(request, tid):
     if request.method == 'POST':
         form = TestForm(request.POST, instance=test)
         if form.is_valid():
-            new_test = form.save()
+            form.save()
             messages.add_message(request,
                                  messages.SUCCESS,
                                  _('Test saved.'),
@@ -447,7 +447,7 @@ class AddFindingView(View):
         args = [request.POST] if request.method == "POST" else []
         # Set the initial form args
         kwargs = {
-            "initial": {'date': timezone.now().date(), 'verified': True},
+            "initial": {'date': timezone.now().date(), 'verified': True, 'dynamic_finding': False},
             "req_resp": None,
             "product": test.engagement.product,
         }
@@ -474,9 +474,9 @@ class AddFindingView(View):
         return None
 
     def validate_status_change(self, request: HttpRequest, context: dict):
-        if ((context["form"]['active'].value() is False or
-             context["form"]['false_p'].value()) and
-             context["form"]['duplicate'].value() is False):
+        if ((context["form"]['active'].value() is False
+             or context["form"]['false_p'].value())
+             and context["form"]['duplicate'].value() is False):
 
             closing_disabled = Note_Type.objects.filter(is_mandatory=True, is_active=True).count()
             if closing_disabled != 0:
@@ -532,7 +532,6 @@ class AddFindingView(View):
             # if the jira issue key was changed, update database
             new_jira_issue_key = context["jform"].cleaned_data.get('jira_issue')
             if finding.has_jira_issue:
-                jira_issue = finding.jira_issue
                 # everything in DD around JIRA integration is based on the internal id of the issue in JIRA
                 # instead of on the public jira issue key.
                 # I have no idea why, but it means we have to retrieve the issue from JIRA to get the internal JIRA id.
@@ -830,6 +829,8 @@ def re_import_scan_results(request, tid):
 
             group_by = form.cleaned_data.get('group_by', None)
             create_finding_groups_for_all_findings = form.cleaned_data.get('create_finding_groups_for_all_findings')
+            apply_tags_to_findings = form.cleaned_data.get('apply_tags_to_findings', False)
+            apply_tags_to_endpoints = form.cleaned_data.get('apply_tags_to_endpoints', False)
 
             active = None
             if activeChoice:
@@ -859,15 +860,16 @@ def re_import_scan_results(request, tid):
             finding_count, new_finding_count, closed_finding_count, reactivated_finding_count, untouched_finding_count = 0, 0, 0, 0, 0
             reimporter = ReImporter()
             try:
-                test, finding_count, new_finding_count, closed_finding_count, reactivated_finding_count, untouched_finding_count, test_import = \
+                test, finding_count, new_finding_count, closed_finding_count, reactivated_finding_count, untouched_finding_count, _test_import = \
                     reimporter.reimport_scan(scan, scan_type, test, active=active, verified=verified,
-                                                tags=None, minimum_severity=minimum_severity,
+                                                tags=tags, minimum_severity=minimum_severity,
                                                 endpoints_to_add=endpoints_to_add, scan_date=scan_date,
                                                 version=version, branch_tag=branch_tag, build_id=build_id,
                                                 commit_hash=commit_hash, push_to_jira=push_to_jira,
                                                 close_old_findings=close_old_findings, group_by=group_by,
                                                 api_scan_configuration=api_scan_configuration, service=service, do_not_reactivate=do_not_reactivate,
-                                                create_finding_groups_for_all_findings=create_finding_groups_for_all_findings)
+                                                create_finding_groups_for_all_findings=create_finding_groups_for_all_findings,
+                                                apply_tags_to_findings=apply_tags_to_findings, apply_tags_to_endpoints=apply_tags_to_endpoints)
             except Exception as e:
                 logger.exception(e)
                 add_error_message_to_response('An exception error occurred during the report import:%s' % str(e))
